@@ -31,7 +31,7 @@ import kotlin.math.abs
  * iOS-style category boxes or an A–Z list, and search (apps, settings, maths, web).
  */
 class Library(private val a: LauncherActivity) {
-    /** type 0 header · 1 app · 2 action row · 3 category box · 4 info text */
+    /** type 0 header · 1 app · 2 action row · 3 category box · 4 info text · 5 app line (list with names) */
     private class Row(val type: Int, val text: String = "", val app: AppInfo? = null,
                       val apps: List<AppInfo> = emptyList(), val action: (() -> Unit)? = null)
 
@@ -94,6 +94,7 @@ class Library(private val a: LauncherActivity) {
             override fun getSpanSize(position: Int): Int = when (rows.getOrNull(position)?.type) {
                 1 -> 2
                 3 -> cols
+                5 -> spans
                 else -> spans
             }
         }
@@ -327,14 +328,36 @@ class Library(private val a: LauncherActivity) {
                     if (privateVisible()) out.add(Row(3, "🔒 Private", apps = all.filter { it.profile == Profiles.PRIVATE }))
                 }
                 ALL -> {
+                    val classic = Prefs.drawerGroup == 1
                     val top = Apps.smart(cols * 2)
                     if (top.isNotEmpty()) {
                         out.add(Row(0, "Suggestions"))
                         top.forEach { out.add(Row(1, app = it)) }
-                        out.add(Row(0, if (Prefs.drawerLetters) "" else "All apps"))
                     }
-                    addList(out, apps, Prefs.drawerLetters)
-                    letters.visibility = if (Prefs.drawerLetters && Prefs.drawerGroup != 2) View.VISIBLE else View.GONE
+                    // List style: new & updated apps (last 3 days)
+                    if (classic && Prefs.listNew) {
+                        val fresh = apps.filter { System.currentTimeMillis() - it.updated < 3 * 86400000L }
+                            .sortedByDescending { it.updated }.take(cols)
+                        if (fresh.isNotEmpty()) {
+                            out.add(Row(0, "New & updated"))
+                            fresh.forEach { out.add(Row(1, app = it)) }
+                        }
+                    }
+                    // List style: sort A–Z, most used or recently updated
+                    val sort = if (classic) Prefs.listSort else 0
+                    val sorted = when (sort) {
+                        1 -> apps.sortedByDescending { Apps.launches(it.key) }
+                        2 -> apps.sortedByDescending { it.updated }
+                        else -> apps
+                    }
+                    val lettersOn = Prefs.drawerLetters && sort == 0
+                    if (out.isNotEmpty()) out.add(Row(0, if (lettersOn) "" else when (sort) {
+                        1 -> "Most used"
+                        2 -> "Recently updated"
+                        else -> "All apps"
+                    }))
+                    addList(out, sorted, lettersOn)
+                    letters.visibility = if (lettersOn && Prefs.drawerGroup != 2) View.VISIBLE else View.GONE
                 }
                 else -> {
                     out.add(Row(0, view))
@@ -342,7 +365,9 @@ class Library(private val a: LauncherActivity) {
                 }
             }
         }
-        rows = out.filter { !(it.type == 0 && it.text.isEmpty()) }
+        // List style: one app per line with its name (classic Android drawer)
+        val lines = Prefs.drawerGroup == 1 && Prefs.listLayout == 1 && q.isEmpty() && tab == PERSONAL && view == ALL
+        rows = out.filter { !(it.type == 0 && it.text.isEmpty()) }.map { if (lines && it.type == 1) Row(5, app = it.app) else it }
         adapter.notifyDataSetChanged()
     }
 
@@ -630,6 +655,25 @@ class Library(private val a: LauncherActivity) {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
             return when (viewType) {
+                5 -> {
+                    val r = a.hbox()
+                    r.setPadding(a.dp(10), a.dp(6), a.dp(10), a.dp(6))
+                    r.background = a.ripple(0x00000000, 16f)
+                    val iv = android.widget.ImageView(a)
+                    val sz = (a.iconPx * 0.78f).toInt()
+                    r.addView(iv, LinearLayout.LayoutParams(sz, sz))
+                    val t = a.label("", 16f, Color.WHITE)
+                    t.maxLines = 1
+                    t.ellipsize = android.text.TextUtils.TruncateAt.END
+                    r.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = a.dp(16) })
+                    val b = a.label("", 12f, Color.WHITE, true)
+                    b.gravity = Gravity.CENTER
+                    b.setPadding(a.dp(7), a.dp(2), a.dp(7), a.dp(2))
+                    b.background = rounded(0xFFFF3B30.toInt(), a.dpf(10f))
+                    r.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    r.layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    Holder(r)
+                }
                 1 -> {
                     val v = IconView(a)
                     v.iconPx = a.iconPx
@@ -671,6 +715,22 @@ class Library(private val a: LauncherActivity) {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val r = rows[position]
             when (r.type) {
+                5 -> {
+                    val v = holder.itemView as LinearLayout
+                    val app = r.app ?: return
+                    val iv = v.getChildAt(0) as android.widget.ImageView
+                    iv.setImageBitmap(Icons.cached(app) ?: Icons.get(a, app))
+                    (v.getChildAt(1) as android.widget.TextView).text = app.label
+                    val n = Badges.count(app.pkg)
+                    val b = v.getChildAt(2) as android.widget.TextView
+                    b.text = if (n > 99) "99+" else n.toString()
+                    b.visibility = if (n > 0 && Prefs.badges != 2) View.VISIBLE else View.GONE
+                    v.setOnClickListener { launch(app, iv) }
+                    v.setOnLongClickListener {
+                        a.showMenu(iv, app, true)
+                        true
+                    }
+                }
                 1 -> {
                     val v = holder.itemView as IconView
                     val app = r.app ?: return

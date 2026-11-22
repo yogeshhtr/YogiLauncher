@@ -64,9 +64,11 @@ fun Context.ripple(color: Int, radiusDp: Float): RippleDrawable =
 fun Context.label(s: CharSequence, size: Float = 15f, color: Int = C.TEXT, bold: Boolean = false): TextView =
     TextView(this).apply {
         text = s
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+        // settings read a little bigger
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (this@label is SettingsActivity) size * 1.12f else size)
         setTextColor(color)
-        if (bold) typeface = Typeface.DEFAULT_BOLD
+        val tf = try { Prefs.typeface() } catch (_: Throwable) { Typeface.DEFAULT }
+        typeface = if (bold) Typeface.create(tf, Typeface.BOLD) else tf
     }
 
 fun Context.vbox(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }

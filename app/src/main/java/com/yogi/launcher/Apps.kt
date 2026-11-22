@@ -121,7 +121,14 @@ object Prefs {
     /** label size in sp */
     val labelSize: Int get() = Store.int("label_size", 12)
     /** 0 default · 1 light · 2 medium · 3 condensed · 4 serif · 5 mono */
-    val font: Int get() = Store.int("font", 0)
+    val font: Int get() = Store.int("font", 4)
+    /** folder corners, % of the icon size; -1 = same shape as the icons */
+    val folderRadius: Int get() = Store.int("folder_radius", -1)
+    val dockRadius: Int get() = Store.int("dock_radius", 30)
+    /** List style App Library */
+    val listSort: Int get() = Store.int("list_sort", 0)
+    val listLayout: Int get() = Store.int("list_layout", 0)
+    val listNew: Boolean get() = Store.bool("list_new", true)
     /** 0 white with shadow · 1 black (for light wallpapers) */
     val labelDark: Boolean get() = Store.bool("label_dark", false)
     /** 0 big · 1 dot-matrix · 2 analog · 3 stacked (style for new clock widgets) */
@@ -533,13 +540,13 @@ object Icons {
             val mono = if (themed && Build.VERSION.SDK_INT >= 33) d.monochrome else null
             c.save()
             c.clipPath(path)
-            if (themed) {
+            // themed icons only for apps that have a monochrome logo; others keep their own icon
+            if (mono != null) {
                 c.drawColor(0xFF1F2A36.toInt())
                 val layer = (mono ?: d.foreground)?.constantState?.newDrawable()?.mutate()
                 if (layer != null) {
                     layer.setBounds(-e, -e, s + e, s + e)
-                    if (mono != null) layer.colorFilter = PorterDuffColorFilter(0xFFBFE3FF.toInt(), PorterDuff.Mode.SRC_IN)
-                    else layer.colorFilter = tintMatrix()
+                    layer.colorFilter = PorterDuffColorFilter(0xFFBFE3FF.toInt(), PorterDuff.Mode.SRC_IN)
                     layer.draw(c)
                 }
             } else {
@@ -552,15 +559,13 @@ object Icons {
             if (fullBleed(raw)) {
                 c.save()
                 c.clipPath(path)
-                if (themed) paint.colorFilter = tintMatrix()
                 c.drawBitmap(raw, null, Rect(0, 0, s, s), paint)
                 c.restore()
             } else {
-                paint.color = if (themed) 0xFF1F2A36.toInt() else Color.WHITE
+                paint.color = Color.WHITE
                 c.drawPath(path, paint)
                 val inset = (s * 0.17f).toInt()
                 val p2 = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-                if (themed) p2.colorFilter = tintMatrix()
                 c.drawBitmap(raw, null, Rect(inset, inset, s - inset, s - inset), p2)
             }
         }

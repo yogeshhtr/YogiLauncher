@@ -30,7 +30,6 @@ class SettingsActivity : AppCompatActivity() {
         listOf("library", "📚", "App Library", "Style, letters, categories, opening view", "drawer library app list letters categories chips columns ios all apps folder horizontal vertical"),
         listOf("private", "🔒", "Private space & work apps", "Show, lock, settings, work profile", "private space secret hidden work profile pause lock unlock"),
         listOf("wallpaper", "🖼", "Wallpaper", "Yogi wallpapers, your photos, dim", "wallpaper background photo dim dark"),
-        listOf("lockscreen", "🔐", "Lock screen", "Double-tap lock, lock wallpaper, clock", "lock screen lockscreen double tap wallpaper clock admin accessibility sleep"),
         listOf("gestures", "👆", "Gestures & notifications", "Swipes, double-tap lock, badges", "gesture swipe double tap lock badge notification dots accessibility"),
         listOf("hidden", "🙈", "Hidden space", "Hidden apps, screen lock (OxygenOS)", "hidden hide apps space secret oxygen"),
         listOf("backup", "💾", "Backup & restore", "Save your layout and settings to a file", "backup restore export import save file layout move phone"),
@@ -73,7 +72,6 @@ class SettingsActivity : AppCompatActivity() {
             "private" -> privateSpace(col)
             "wallpaper" -> wallpaper(col)
             "gestures" -> gestures(col)
-            "lockscreen" -> lockScreen(col)
             "backup" -> backup(col)
             "hidden" -> hidden(col)
             "about" -> about(col)
@@ -106,8 +104,8 @@ class SettingsActivity : AppCompatActivity() {
         st.addView(statusRow("🏠", "Default home screen", if (isDefault) "Yes" else "Tap to set", isDefault) { System2.askDefault(this) })
         val badges = Badges.allowed(this)
         st.addView(statusRow("🔴", "Notification badges", if (badges) "On" else "Tap to turn on", badges) { Badges.openSettings(this) })
-        val lock = LockService.instance != null || Locker.adminActive(this)
-        st.addView(statusRow("🔒", "Double-tap to lock", if (lock) "Working" else "Tap to set up", lock) { openPage("lockscreen") })
+        val lock = LockService.instance != null
+        st.addView(statusRow("🔒", "Double-tap to lock", if (lock) "On" else "Tap to turn on", lock) { Access.ask(this, true) })
         col.addView(st)
 
         val listCard = card()
@@ -136,12 +134,11 @@ class SettingsActivity : AppCompatActivity() {
         val look = card()
         look.addView(shapePreview())
         look.addView(choice("Shape", listOf("Squircle", "Circle", "Rounded", "Pebble"), Prefs.shape) { Store.setInt("shape", it); changed() })
-        look.addView(choice("Size", listOf("Small", "Normal", "Large", "Huge"), when {
-            Prefs.iconScale < 0.95f -> 0
-            Prefs.iconScale > 1.15f -> 3
-            Prefs.iconScale > 1.05f -> 2
-            else -> 1
-        }) { Store.setInt("icon_scale", listOf(88, 100, 112, 124)[it]); changed() })
+        look.addView(slider("Icon size", 70, 140, (Prefs.iconScale * 100).toInt(), { "$it %" }, { v ->
+            val px = (dp(56) * v / 100f).toInt()
+            for (iv in previewIcons) iv.layoutParams = (iv.layoutParams as LinearLayout.LayoutParams).apply { width = px; height = px }
+            previewRow?.requestLayout()
+        }) { Store.setInt("icon_scale", it); changed() })
         look.addView(choice("Style", listOf("Original colours", "Themed (tinted)"), if (Prefs.themed) 1 else 0) {
             Store.setBool("themed", it == 1)
             changed()
@@ -185,6 +182,12 @@ class SettingsActivity : AppCompatActivity() {
             50 -> 3
             else -> 2
         }) { Store.setInt("dock_alpha", listOf(0, 15, 30, 50)[it]); changed() })
+        val dockPrev = View(this)
+        dockPrev.background = rounded(0x55FFFFFF, dpf(Prefs.dockRadius.toFloat()))
+        hs.addView(slider("Dock corners", 0, 40, Prefs.dockRadius, { "$it dp" }, { v ->
+            dockPrev.background = rounded(0x55FFFFFF, dpf(v.toFloat()))
+        }) { Store.setInt("dock_radius", it); changed() })
+        hs.addView(dockPrev, LinearLayout.LayoutParams(MATCH, dp(64)).apply { setMargins(dp(8), dp(4), dp(8), dp(6)) })
         hs.addView(choice("Hold empty space", listOf("Menu (One UI)", "Edit mode"), Prefs.longPress) { Store.setInt("long_press", it); changed() })
         hs.addView(choice("Lock home screen layout (One UI)", listOf("Off", "On"), if (Prefs.lockLayout) 1 else 0) {
             Store.setBool("lock_layout", it == 1)
@@ -194,7 +197,6 @@ class SettingsActivity : AppCompatActivity() {
             Store.setBool("auto_add", it == 0)
             changed()
         })
-        hs.addView(label("Hold empty space for Edit mode · ＋ Widget adds clocks and Android widgets", 12f, C.SUB).lin(t = dp(8)))
         col.addView(hs)
     }
 
@@ -209,19 +211,35 @@ class SettingsActivity : AppCompatActivity() {
             Store.setInt("folder_preview", it)
             changed()
         })
+        val fr = Prefs.folderRadius
+        val folderPrev = View(this)
+        folderPrev.background = rounded(0x55FFFFFF, dp(64) * (if (fr < 0) 25 else fr) / 100f)
+        fc.addView(choice("Folder corners", listOf("Same as icons", "Custom"), if (fr < 0) 0 else 1) {
+            Store.setInt("folder_radius", if (it == 0) -1 else 25)
+            changed()
+        })
+        if (fr >= 0) {
+            fc.addView(slider("Roundness", 0, 50, fr, { "$it %" }, { v ->
+                folderPrev.background = rounded(0x55FFFFFF, dp(64) * v / 100f)
+            }) { Store.setInt("folder_radius", it); changed() })
+            val holder = hbox()
+            holder.gravity = Gravity.CENTER
+            holder.addView(folderPrev, LinearLayout.LayoutParams(dp(64), dp(64)))
+            fc.addView(holder.lin(t = dp(4), b = dp(6)))
+        }
         fc.addView(choice("Blur behind open folders", BLURS, Prefs.blurFolder) { Store.setInt("blur_folder", it); changed() })
         fc.addView(choice("New folders", listOf("Small 1 × 1", "Large 2 × 2 (HyperOS)"), if (Prefs.bigFolders) 1 else 0) {
             Store.setBool("big_folders", it == 1)
             changed()
         })
-        fc.addView(label("Drop an app on another to make a folder · hold a folder → Make large (2 × 2): its apps open with one tap", 12f, C.SUB).lin(t = dp(8)))
         col.addView(fc)
     }
 
     private fun widgets(col: LinearLayout) {
         pageTitle(col, "widgets")
         val ck = card()
-        val names = listOf("Big", "Dot-matrix", "Analog", "Stacked", "Nothing", "OxygenOS", "World", "Flip", "Ring")
+        val names = listOf("Big", "Dot-matrix", "Analog", "Stacked", "Nothing", "OxygenOS", "World", "Flip", "Ring",
+            "OxygenOS stacked", "HyperOS", "iOS lock", "Words", "Day bars")
         ck.addView(choice("Style for new clocks", names, Prefs.clockStyle) {
             Store.setInt("clock_style", it)
             changed()
@@ -230,8 +248,6 @@ class SettingsActivity : AppCompatActivity() {
             Store.setBool("widget_glass", it == 0)
             changed()
         })
-        ck.addView(label("Edit mode → ＋ Widget: Yogi clocks (Nothing, OxygenOS, world, flip, ring, analog), month calendar, date, battery, " +
-            "and every Android widget with previews. Hold a widget → style, cities, background, size, move.", 12f, C.SUB).lin(t = dp(8)))
         col.addView(ck)
     }
 
@@ -250,6 +266,20 @@ class SettingsActivity : AppCompatActivity() {
             })
             dr.addView(choice("Tapping a category opens", listOf("Vertical grid", "Horizontal pages", "Inside the list"), Prefs.libFolder) {
                 Store.setInt("lib_folder", it)
+                changed()
+            })
+        }
+        if (Prefs.drawerGroup == 1) {
+            dr.addView(choice("Sort apps", listOf("A–Z", "Most used", "Recently updated"), Prefs.listSort) {
+                Store.setInt("list_sort", it)
+                changed()
+            })
+            dr.addView(choice("Layout", listOf("Icon grid", "List with names"), Prefs.listLayout) {
+                Store.setInt("list_layout", it)
+                changed()
+            })
+            dr.addView(choice("“New & updated” row", listOf("On", "Off"), if (Prefs.listNew) 0 else 1) {
+                Store.setBool("list_new", it == 0)
                 changed()
             })
         }
@@ -296,8 +326,6 @@ class SettingsActivity : AppCompatActivity() {
             })
             pc.addView(link("⚙", "Private space settings (Android)") { Profiles.openPrivateSettings(this) })
             pc.addView(link("＋", "Install apps in private space") { Profiles.installApps(this, pu) })
-            pc.addView(label("Private apps never go on the home screen and never show in suggestions. When hidden, search " +
-                "“private” in the App Library to open it.", 12f, C.SUB).lin(t = dp(8)))
         }
         col.addView(pc)
         col.addView(section("WORK PROFILE"))
@@ -356,6 +384,13 @@ class SettingsActivity : AppCompatActivity() {
                 toast("No wallpaper app found")
             }
         })
+        more.addView(link("🔐", "Your photo on the lock screen only") {
+            try {
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"), REQ_LOCK_PHOTO)
+            } catch (_: Exception) {
+                toast("No photo picker found")
+            }
+        })
         more.addView(choice("Dim wallpaper on the home screen", listOf("Off", "15 %", "30 %", "45 %"), when (Prefs.wallDim) {
             15 -> 1
             30 -> 2
@@ -387,78 +422,18 @@ class SettingsActivity : AppCompatActivity() {
             Store.setBool("dt_lock", it == 0)
             changed()
         })
-        gs.addView(label("Swipe up: App Library & search · hold empty space: edit · hold an icon: menu or move it · " +
-            "drop an icon on another: folder · tap the page dots: search", 12f, C.SUB).lin(t = dp(8)))
         col.addView(gs)
         col.addView(section("BUILT IN (NO EXTRA APP NEEDED)"))
         val bc = card()
         val badges = Badges.allowed(this)
         bc.addView(statusRow("🔴", "Notification badges & previews", if (badges) "On" else "Turn on", badges) { Badges.openSettings(this) })
         lockRows(bc, col)
-        bc.addView(label("You can uninstall the old “Yogi Launcher Plus” app: everything is inside Yogi Launcher now.", 12f, C.SUB).lin(t = dp(8)))
         col.addView(bc)
     }
 
     private fun lockRows(bc: LinearLayout, col: LinearLayout) {
-        val lockOn = Badges.lockAllowed(this)
         val running = LockService.instance != null
-        bc.addView(statusRow("🔒", "Double-tap lock · accessibility", when {
-            running -> "Working"
-            lockOn -> "On but not running · tap"
-            else -> "Turn on"
-        }, running) { Access.ask(this, true) })
-        val admin = Locker.adminActive(this)
-        bc.addView(statusRow("🛡", "Double-tap lock · device admin (backup)", if (admin) "On" else "Turn on", admin) {
-            if (admin) Locker.removeAdmin(this) else Locker.askAdmin(this)
-            col.postDelayed({ build() }, 800)
-        })
-        bc.addView(label("Accessibility lock keeps fingerprint and face unlock. Device admin is a backup that always works, " +
-            "but Android then asks for your PIN once after locking. If accessibility says “On but not running”, " +
-            "turn it off and on again (Android stops it after the app is updated).", 12f, C.SUB).lin(t = dp(8)))
-        bc.addView(link("🧪", "Test: lock the screen now") {
-            if (!Locker.lock(this)) toast("Turn on one of the two lock options first")
-        })
-    }
-
-    // ===================================================================== lock screen
-
-    private fun lockScreen(col: LinearLayout) {
-        pageTitle(col, "lockscreen")
-        val how = card()
-        how.addView(choice("Double-tap empty space on Home", listOf("Lock screen", "Nothing"), if (Prefs.doubleTapLock) 0 else 1) {
-            Store.setBool("dt_lock", it == 0)
-            changed()
-        })
-        lockRows(how, col)
-        how.addView(label("Also: hold empty space on Home → “Lock screen now”.", 12f, C.SUB).lin(t = dp(8)))
-        col.addView(how)
-
-        col.addView(section("LOOK OF THE LOCK SCREEN"))
-        val look = card()
-        look.addView(link("🖼", "Yogi wallpaper on the lock screen") { openPage("wallpaper") })
-        look.addView(link("📷", "Your photo on the lock screen only") {
-            try {
-                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"), REQ_LOCK_PHOTO)
-            } catch (_: Exception) {
-                toast("No photo picker found")
-            }
-        })
-        look.addView(link("🕐", "Lock screen clock & style (phone settings)") { openSystem(listOf(
-            Intent("android.settings.LOCK_SCREEN_SETTINGS"),
-            Intent().setClassName("com.google.android.apps.wallpaper", "com.android.customization.picker.CustomizationPickerActivity"),
-            Intent().setClassName("com.android.wallpaper", "com.android.customization.picker.CustomizationPickerActivity"),
-            Intent(Intent.ACTION_SET_WALLPAPER),
-            Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS))) })
-        look.addView(link("🔔", "Notifications on the lock screen") { openSystem(listOf(
-            Intent("android.settings.LOCK_SCREEN_SETTINGS"),
-            Intent(android.provider.Settings.ACTION_SETTINGS))) })
-        look.addView(link("🔑", "PIN, fingerprint & face unlock") { openSystem(listOf(
-            Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS),
-            Intent(android.provider.Settings.ACTION_SETTINGS))) })
-        look.addView(label("Android lets only the phone itself draw the lock screen, so no launcher can replace it. " +
-            "Yogi Launcher can change its wallpaper, and the links above open your phone's own lock screen styles " +
-            "(clock faces on Pixel 8+ / Samsung / OxygenOS).", 12f, C.SUB).lin(t = dp(8)))
-        col.addView(look)
+        bc.addView(statusRow("🔒", "Double-tap to lock", if (running) "On" else "Turn on", running) { Access.ask(this, true) })
     }
 
     private fun openSystem(list: List<Intent>) {
@@ -477,8 +452,6 @@ class SettingsActivity : AppCompatActivity() {
     private fun backup(col: LinearLayout) {
         pageTitle(col, "backup")
         val c = card()
-        c.addView(label("Saves your home screen, folders, dock, widgets, hidden apps and every setting to a small file. " +
-            "Keep it in Drive or Downloads, and restore it after a reset or on a new phone.", 13f, C.SUB).lin(b = dp(6)))
         c.addView(link("⬆", "Save a backup file") {
             val name = "YogiLauncher-backup-" + java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) + ".json"
             try {
@@ -495,8 +468,6 @@ class SettingsActivity : AppCompatActivity() {
                 toast("No file app found")
             }
         })
-        c.addView(label("Android widgets from other apps can't be copied between phones: after restoring on a new phone, " +
-            "add them again (Yogi clocks, stacks and suggestions come back by themselves).", 12f, C.SUB).lin(t = dp(8)))
         col.addView(c)
     }
 
@@ -579,8 +550,7 @@ class SettingsActivity : AppCompatActivity() {
         pageTitle(col, "hidden")
         val hidden = Prefs.hidden
         val hs = card()
-        hs.addView(label("Hidden space (OxygenOS): hidden apps leave Home, the App Library and search. Open them with a " +
-            "two-finger swipe up on the home screen, or search “hidden”.", 13f, C.SUB))
+        hs.addView(label("Open with a two-finger swipe up on Home, or search “hidden”.", 13f, C.SUB))
         hs.addView(choice("Ask for screen lock to open", listOf("Yes", "No"), if (Prefs.hiddenLock) 0 else 1) {
             Store.setBool("hidden_lock", it == 0)
             changed()
@@ -635,7 +605,6 @@ class SettingsActivity : AppCompatActivity() {
             } catch (_: Exception) {
             }
         })
-        more.addView(label("Ideas learned from open-source launchers (Lawnchair, Kvaesitso, Folio). All code here is our own.", 12f, C.SUB).lin(t = dp(8)))
         col.addView(more)
         col.addView(footer())
     }
@@ -693,7 +662,7 @@ class SettingsActivity : AppCompatActivity() {
         val box = vbox()
         box.addView(label("Font", 13f, C.SUB, true).lin(t = dp(10), b = dp(4)))
         val row = hbox()
-        val names = listOf("Default", "Light", "Medium", "Condensed", "Serif", "Mono")
+        val names = listOf("System", "Light", "Medium", "Condensed", "Serif (Times)", "Mono")
         val faces = listOf(
             android.graphics.Typeface.DEFAULT,
             android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL),
@@ -756,19 +725,51 @@ class SettingsActivity : AppCompatActivity() {
         return box
     }
 
-    /** Shows the chosen icon shape with a few of your apps. */
+    private val previewIcons = ArrayList<ImageView>()
+    private var previewRow: LinearLayout? = null
+
+    /** Shows a few of your apps with the chosen shape, icon pack and size. */
     private fun shapePreview(): View {
         val row = hbox()
         row.gravity = Gravity.CENTER
-        val size = dp(56)
-        val me = try { packageManager.getApplicationIcon(packageName) } catch (_: Exception) { null }
-        for (s in listOf(Apps.list.getOrNull(0), Apps.list.getOrNull(1), Apps.list.getOrNull(2), Apps.list.getOrNull(3))) {
-            val d = s?.let { a -> IconPacks.drawable(this, a) ?: (try { a.info.getIcon(0) } catch (_: Exception) { null }) } ?: me ?: continue
+        previewIcons.clear()
+        previewRow = row
+        val size = (dp(56) * Prefs.iconScale).toInt()
+        for (app in Apps.list.take(4)) {
             val iv = ImageView(this)
-            iv.setImageBitmap(Icons.render(d, size))
+            Thread {
+                val b = try { Icons.get(this, app) } catch (_: Exception) { null }
+                iv.post { iv.setImageBitmap(b) }
+            }.start()
+            previewIcons.add(iv)
             row.addView(iv, LinearLayout.LayoutParams(size, size).apply { setMargins(dp(8), dp(4), dp(8), dp(8)) })
         }
-        row.setBackgroundColor(Color.TRANSPARENT)
+        row.minimumHeight = dp(90)
         return row
+    }
+
+    /** A slider that shows the change while you drag and saves when you let go. */
+    private fun slider(name: String, min: Int, max: Int, value: Int, fmt: (Int) -> String, live: (Int) -> Unit, done: (Int) -> Unit): View {
+        val box = vbox()
+        val head = hbox()
+        val v = label(fmt(value), 13f, C.ACCENT, true)
+        head.addView(label(name, 13f, C.SUB, true).lin(0, WRAP, 1f))
+        head.addView(v)
+        box.addView(head.lin(t = dp(10)))
+        val sb = android.widget.SeekBar(this)
+        sb.max = max - min
+        sb.progress = (value - min).coerceIn(0, max - min)
+        sb.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: android.widget.SeekBar?, p: Int, fromUser: Boolean) {
+                v.text = fmt(p + min)
+                if (fromUser) live(p + min)
+            }
+            override fun onStartTrackingTouch(s: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(s: android.widget.SeekBar?) {
+                done((s?.progress ?: 0) + min)
+            }
+        })
+        box.addView(sb.lin(t = dp(2), b = dp(4)))
+        return box
     }
 }

@@ -331,7 +331,7 @@ class LauncherActivity : AppCompatActivity() {
             pager.addView(g, FrameLayout.LayoutParams(MATCH, MATCH))
         }
         dock.removeAllViews()
-        dock.background = rounded(Color.argb(Prefs.dockAlpha * 255 / 100, 255, 255, 255), dpf(30f))
+        dock.background = rounded(Color.argb(Prefs.dockAlpha * 255 / 100, 255, 255, 255), dpf(Prefs.dockRadius.toFloat()))
         dock.setPadding(dp(6), 0, dp(6), 0)
         for (i in 0 until Home.DOCK_SIZE) {
             val it = Home.dock[i]
@@ -943,6 +943,8 @@ class LauncherActivity : AppCompatActivity() {
 
     private var folderFrom: View? = null
 
+    private fun folderPanelR(def: Float): Float = if (Prefs.folderRadius < 0) dpf(def) else dpf(Prefs.folderRadius * 1.5f)
+
     /**
      * Opens a home folder. iOS style: 3 × 3 pages you swipe sideways, zooming out of the folder icon.
      * Scrolling style: one tall grid.
@@ -987,7 +989,7 @@ class LauncherActivity : AppCompatActivity() {
             }
             fd.count = pagesN
             val panel = vbox()
-            panel.background = rounded(0x47FFFFFF, dpf(38f))
+            panel.background = rounded(0x47FFFFFF, folderPanelR(38f))
             panel.setPadding(dp(12), dp(18), dp(12), dp(8))
             panel.isClickable = true
             panel.addView(fp, LinearLayout.LayoutParams(MATCH, cellH * 3))
@@ -996,7 +998,7 @@ class LauncherActivity : AppCompatActivity() {
             fp.post { fp.setPage(0, false) }
         } else {
             val panel = vbox()
-            panel.background = rounded(0x40FFFFFF, dpf(34f))
+            panel.background = rounded(0x40FFFFFF, folderPanelR(34f))
             panel.setPadding(dp(14), dp(16), dp(14), dp(10))
             panel.isClickable = true
             val perRow = if (f.apps.size > 12) 4 else 3
@@ -1084,18 +1086,7 @@ class LauncherActivity : AppCompatActivity() {
 
     /** Locks with accessibility (keeps fingerprint) or device admin; explains what to turn on if neither works. */
     private fun lockNow() {
-        if (Locker.lock(this)) return
-        val enabled = Badges.lockAllowed(this)
-        AlertDialog.Builder(this)
-            .setTitle("Double-tap to lock")
-            .setMessage(if (enabled) "The accessibility switch is on, but Android isn't running it (this happens after an update). " +
-                "Turn “Yogi Launcher double-tap lock” off and on again, or use the device admin backup."
-            else "Choose how Yogi Launcher may lock the screen:\n\n• Accessibility: keeps fingerprint / face unlock.\n" +
-                "• Device admin: always works, asks for your PIN once after locking.")
-            .setPositiveButton("Accessibility") { _, _ -> Access.ask(this, true) }
-            .setNeutralButton("Device admin") { _, _ -> Locker.askAdmin(this) }
-            .setNegativeButton("Not now", null)
-            .show()
+        if (!Locker.lock(this)) Access.ask(this, true)
     }
 
     private fun closeAll(): Boolean {
@@ -1237,6 +1228,10 @@ class LauncherActivity : AppCompatActivity() {
         val f = WidgetHost.frame(this, inner, 26f, glass = glass)
         f.setPadding(dp(4), dp(4), dp(4), dp(4))
         f.onLong = { widgetMenu(f, w, slot) }
+        f.onDrag = {
+            popup?.dismiss()
+            if (!layoutLocked()) startWidgetDrag(f, w, slot)
+        }
         val d = drag
         if (d != null && d.src == slot) f.alpha = 0.25f
         return f
@@ -1259,6 +1254,11 @@ class LauncherActivity : AppCompatActivity() {
         Triple("Smart suggestions", "suggest", 0),
         Triple("Nothing two-line clock", "clock", 4),
         Triple("OxygenOS two-tone clock", "clock", 5),
+        Triple("OxygenOS stacked clock", "clock", 9),
+        Triple("HyperOS clock", "clock", 10),
+        Triple("iOS lock screen clock", "clock", 11),
+        Triple("Word clock", "clock", 12),
+        Triple("Day bars clock", "clock", 13),
         Triple("Big digits clock", "clock", 0),
         Triple("World clock", "clock", 6),
         Triple("Analog clock", "clock", 2),
@@ -1389,7 +1389,7 @@ class LauncherActivity : AppCompatActivity() {
             }
         }
         divider(box)
-        menuRow(box, "✥", "Move") { if (!layoutLocked()) startWidgetDrag(v, top, slot) }
+        menuRow(box, "✥", "Move: hold the widget and drag") { toast("Hold the widget, then drag it where you want") }
         if (!Prefs.lockLayout) menuRow(box, "🗑", if (isStack) "Remove the whole stack" else "Remove widget", 0xFFFF6961.toInt()) {
             Home.removeAt(slot)
             for (x in top.all()) if (x.kind == "app") WidgetHost.delete(this, x.wid)
@@ -1419,7 +1419,8 @@ class LauncherActivity : AppCompatActivity() {
     private fun homePage(): Int = (pager.current - pager.firstHome).coerceAtLeast(0)
 
     private val CLOCKS = listOf("Big digits", "Dot-matrix (Nothing)", "Analog", "Stacked", "Nothing two-line",
-        "OxygenOS two-tone", "World clock", "Flip", "Ring (Pixel)")
+        "OxygenOS two-tone", "World clock", "Flip", "Ring (Pixel)", "OxygenOS stacked", "HyperOS", "iOS lock screen",
+        "Word clock", "Day bars (Nothing)")
 
     private fun cities(w: WidgetItem): List<String> =
         Store.str("wc_" + w.id, "Europe/London,America/New_York,Asia/Tokyo").split(',').filter { it.isNotBlank() }

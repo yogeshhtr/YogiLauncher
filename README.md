@@ -5,6 +5,15 @@
 A clean, fast home screen for Android. It is iPhone-simple, has HyperOS-style folders, and adds advanced extras.
 It's small (only AndroidX libraries, no tracking, no ads) and works fully offline.
 
+## New in v9
+* **Move widgets**: hold a widget and drag it, just like an icon.
+* **Yogi Glass redone**: each app keeps its own background and logo, with a lifted logo, a glass dome highlight and a bright rim. Old-style icons, and icons without a monochrome logo in Dark / Light / Themed, keep their normal look.
+* **Live sliders**: icon size (with a live preview), dock corners and folder corners.
+* **Serif font by default**, applied across the launcher, with bigger text in Settings. Fewer help texts.
+* **5 new clocks**: OxygenOS stacked, HyperOS, iOS lock screen, Word clock, Day bars. The OxygenOS clock has more padding.
+* **List style App Library**: sort by A–Z / most used / recently updated, an icon grid or a list with names, and a "New & updated" row.
+* Simpler lock settings: just the double-tap switch.
+
 ## New in v8
 * **Smart stack** (iOS): several widgets in one spot, swipe up/down to flip. Add it from *Add widget*, or hold any widget → *Make a smart stack*. Works with Yogi clocks, calendar, battery, suggestions and Android widgets.
 * **Smart suggestions**: a widget and an App Library row with the apps you usually open at this time of day.

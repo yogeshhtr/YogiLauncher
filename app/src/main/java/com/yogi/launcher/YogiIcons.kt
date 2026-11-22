@@ -1,26 +1,28 @@
 package com.yogi.launcher
 
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
-import android.graphics.Rect
+import android.graphics.RadialGradient
+import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
 
 /**
- * Yogi icon styles. They restyle each app's OWN icon, so WhatsApp, Viber and Telegram stay recognisable,
- * but every icon gets the same finish:
- *  - Glass (iOS 26 "liquid glass" feel): the app's colour as a soft gradient, a glossy top light and a bright rim
- *  - Dark (Nothing OS): white glyphs on graphite
- *  - Light (iOS tinted light): the app's glyph in its own colour on frosted white
+ * Yogi icon styles. They finish each app's OWN icon (its real colours and logo), never swap it for a drawing:
+ *  - Glass (liquid glass): the app's own background and logo, the logo lifted with a soft shadow,
+ *    a curved glass highlight on top, a light edge at the bottom and a bright rim
+ *  - Dark (Nothing OS): the app's monochrome logo in white on graphite
+ *  - Light (iOS tinted light): the app's monochrome logo in its own colour on frosted white
+ * Apps whose icon can't be styled well (old square icons, no monochrome logo) keep their normal icon.
  */
 object YogiIcons {
     const val PACK = "yogi"          // glass
@@ -35,98 +37,133 @@ object YogiIcons {
         else -> "Yogi Glass"
     }
 
+    /** null = keep the app's normal icon. */
     fun render(app: AppInfo, s: Int, pack: String): Bitmap? {
+        if (Build.VERSION.SDK_INT < 26) return null
         val d = try { app.info.getIcon(0) } catch (_: Exception) { null } ?: return null
+        if (d !is AdaptiveIconDrawable) return null
+        return try {
+            when (pack) {
+                DARK, LIGHT -> tinted(d, s, pack == DARK)
+                else -> glass(d, s)
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    // ------------------------------------------------------------------ glass
+
+    private fun glass(d: AdaptiveIconDrawable, s: Int): Bitmap {
+        val sf = s.toFloat()
         val out = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
         val c = Canvas(out)
-        val shape = Shapes.path(Prefs.shape, s.toFloat())
-        val dom = dominant(d)
-        val adaptive = Build.VERSION.SDK_INT >= 26 && d is AdaptiveIconDrawable
+        val shape = Shapes.path(Prefs.shape, sf)
         val e = (s * 0.25f).toInt()
-        val bgP = Paint(Paint.ANTI_ALIAS_FLAG)
+        c.save()
+        c.clipPath(shape)
 
-        c.save()
-        c.clipPath(shape)
-        when (pack) {
-            DARK -> {
-                bgP.shader = LinearGradient(0f, 0f, 0f, s.toFloat(), 0xFF2E2E33.toInt(), 0xFF0F0F11.toInt(), Shader.TileMode.CLAMP)
-                c.drawRect(0f, 0f, s.toFloat(), s.toFloat(), bgP)
-                glyph(c, d, adaptive, s, e, 0xFFF2F2F2.toInt(), grey = true)
-            }
-            LIGHT -> {
-                bgP.shader = LinearGradient(0f, 0f, 0f, s.toFloat(), 0xFFFFFFFF.toInt(), 0xFFE6E9F0.toInt(), Shader.TileMode.CLAMP)
-                c.drawRect(0f, 0f, s.toFloat(), s.toFloat(), bgP)
-                glyph(c, d, adaptive, s, e, shade(dom, if (lum(dom) > 0.7f) 0.45f else 0.9f), grey = false)
-            }
-            else -> {
-                // glass: keep light backgrounds light (Google-style icons), otherwise the app's own colour
-                val lightBg = adaptive && Build.VERSION.SDK_INT >= 26 && (d as AdaptiveIconDrawable).background?.let { lum(avg(it)) > 0.82f } == true
-                val top: Int
-                val bottom: Int
-                if (lightBg || sat(dom) < 0.12f && lum(dom) > 0.7f) {
-                    top = 0xFFFFFFFF.toInt(); bottom = 0xFFE4E8EF.toInt()
-                } else {
-                    top = shade(dom, 1.28f); bottom = shade(dom, 0.72f)
-                }
-                bgP.shader = LinearGradient(0f, 0f, s * 0.35f, s.toFloat(), top, bottom, Shader.TileMode.CLAMP)
-                c.drawRect(0f, 0f, s.toFloat(), s.toFloat(), bgP)
-                if (adaptive && Build.VERSION.SDK_INT >= 26) {
-                    val fg = (d as AdaptiveIconDrawable).foreground
-                    if (fg != null) {
-                        fg.setBounds(-e, -e, s + e, s + e)
-                        fg.draw(c)
-                    }
-                } else {
-                    val raw = toBitmap(d, s)
-                    val inset = (s * 0.16f).toInt()
-                    c.drawBitmap(raw, null, Rect(inset, inset, s - inset, s - inset), Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
-                }
-            }
+        // 1. the app's own background
+        val bg = d.background
+        if (bg != null) {
+            bg.setBounds(-e, -e, s + e, s + e)
+            bg.draw(c)
+        } else c.drawColor(Color.WHITE)
+
+        // 2. glass depth: a soft light wash from the top, a little shade at the bottom
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.shader = LinearGradient(0f, 0f, 0f, sf, intArrayOf(0x2EFFFFFF, 0x00FFFFFF, 0x00000000, 0x24000000),
+            floatArrayOf(0f, 0.45f, 0.6f, 1f), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, sf, sf, p)
+
+        // 3. the logo, lifted off the glass with a soft shadow
+        val fg = d.foreground
+        if (fg != null) {
+            val fb = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+            fg.setBounds(-e, -e, s + e, s + e)
+            fg.draw(Canvas(fb))
+            val alpha = fb.extractAlpha()
+            val sh = Paint(Paint.ANTI_ALIAS_FLAG)
+            sh.color = 0x47000000
+            sh.maskFilter = BlurMaskFilter(sf * 0.035f, BlurMaskFilter.Blur.NORMAL)
+            c.drawBitmap(alpha, 0f, sf * 0.028f, sh)
+            c.drawBitmap(fb, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+            alpha.recycle()
+            fb.recycle()
         }
-        // gloss: light from the top, a little depth at the bottom
-        val gl = Paint(Paint.ANTI_ALIAS_FLAG)
-        gl.shader = LinearGradient(0f, 0f, 0f, s * 0.55f,
-            if (pack == DARK) 0x33FFFFFF else 0x59FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
-        c.drawRect(0f, 0f, s.toFloat(), s * 0.55f, gl)
-        gl.shader = LinearGradient(0f, s * 0.6f, 0f, s.toFloat(), 0x00000000, if (pack == LIGHT) 0x14000000 else 0x26000000, Shader.TileMode.CLAMP)
-        c.drawRect(0f, s * 0.6f, s.toFloat(), s.toFloat(), gl)
+
+        // 4. curved highlight across the top, like light on a glass dome
+        val dome = Path()
+        dome.addOval(RectF(-sf * 0.25f, -sf * 0.68f, sf * 1.25f, sf * 0.44f), Path.Direction.CW)
+        p.shader = LinearGradient(0f, 0f, 0f, sf * 0.44f, 0x4DFFFFFF, 0x05FFFFFF, Shader.TileMode.CLAMP)
+        c.drawPath(dome, p)
+
+        // 5. light caught in the bottom edge (refraction)
+        p.shader = RadialGradient(sf * 0.5f, sf * 1.08f, sf * 0.5f, 0x33FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+        c.drawRect(0f, sf * 0.6f, sf, sf, p)
+
+        // 6. a small sparkle at the top left
+        p.shader = RadialGradient(sf * 0.24f, sf * 0.16f, sf * 0.16f, 0x40FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+        c.drawCircle(sf * 0.24f, sf * 0.16f, sf * 0.16f, p)
         c.restore()
-        // bright rim, strongest at the top (liquid glass edge)
-        val rim = Paint(Paint.ANTI_ALIAS_FLAG)
-        rim.style = Paint.Style.STROKE
-        rim.strokeWidth = s * 0.022f
-        rim.shader = LinearGradient(0f, 0f, 0f, s.toFloat(),
-            if (pack == LIGHT) 0xCCFFFFFF.toInt() else 0x99FFFFFF.toInt(), 0x14FFFFFF, Shader.TileMode.CLAMP)
-        c.save()
-        c.clipPath(shape)
-        c.drawPath(shape, rim)
-        c.restore()
+
+        rim(c, shape, sf, 0xCCFFFFFF.toInt(), 0x14FFFFFF, 0x59FFFFFF)
         return out
     }
 
-    /** The app's glyph: Android 13 monochrome layer when the app has one, else its foreground. */
-    private fun glyph(c: Canvas, d: Drawable, adaptive: Boolean, s: Int, e: Int, color: Int, grey: Boolean) {
-        if (adaptive && Build.VERSION.SDK_INT >= 26) {
-            val ad = d as AdaptiveIconDrawable
-            val mono = if (Build.VERSION.SDK_INT >= 33) ad.monochrome else null
-            val layer = (mono ?: ad.foreground)?.constantState?.newDrawable()?.mutate() ?: return
-            layer.setBounds(-e, -e, s + e, s + e)
-            layer.colorFilter = if (mono != null) PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN) else if (grey) greyFilter() else null
-            layer.draw(c)
-        } else {
-            val raw = toBitmap(d, s)
-            val inset = (s * 0.16f).toInt()
-            val p = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-            if (grey) p.colorFilter = greyFilter()
-            c.drawBitmap(raw, null, Rect(inset, inset, s - inset, s - inset), p)
-        }
+    /** Bright glass edge: strong at the top left, faint in the middle, soft again at the bottom right. */
+    private fun rim(c: Canvas, shape: Path, sf: Float, a: Int, b: Int, z: Int) {
+        val r = Paint(Paint.ANTI_ALIAS_FLAG)
+        r.style = Paint.Style.STROKE
+        r.strokeWidth = sf * 0.032f
+        r.shader = LinearGradient(0f, 0f, sf, sf, intArrayOf(a, b, z), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+        c.save()
+        c.clipPath(shape)
+        c.drawPath(shape, r)
+        // hair-thin dark line so light icons still have an edge
+        r.shader = null
+        r.color = 0x1F000000
+        r.strokeWidth = sf * 0.008f
+        c.drawPath(shape, r)
+        c.restore()
     }
 
-    private fun greyFilter(): ColorMatrixColorFilter {
-        val m = ColorMatrix()
-        m.setSaturation(0f)
-        m.postConcat(ColorMatrix(floatArrayOf(1.25f, 0f, 0f, 0f, 30f, 0f, 1.25f, 0f, 0f, 30f, 0f, 0f, 1.25f, 0f, 30f, 0f, 0f, 0f, 1f, 0f)))
-        return ColorMatrixColorFilter(m)
+    // ------------------------------------------------------------------ dark / light
+
+    private fun tinted(d: AdaptiveIconDrawable, s: Int, dark: Boolean): Bitmap? {
+        if (Build.VERSION.SDK_INT < 33) return null
+        val mono = d.monochrome ?: return null
+        val sf = s.toFloat()
+        val out = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        val shape = Shapes.path(Prefs.shape, sf)
+        val e = (s * 0.25f).toInt()
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        c.save()
+        c.clipPath(shape)
+        p.shader = if (dark) LinearGradient(0f, 0f, 0f, sf, 0xFF34343A.toInt(), 0xFF111113.toInt(), Shader.TileMode.CLAMP)
+        else LinearGradient(0f, 0f, 0f, sf, 0xFFFFFFFF.toInt(), 0xFFE4E7EE.toInt(), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, sf, sf, p)
+        val col = if (dark) 0xFFF4F4F4.toInt() else deep(dominant(d))
+        val layer = mono.constantState?.newDrawable()?.mutate() ?: mono
+        layer.setBounds(-e, -e, s + e, s + e)
+        layer.colorFilter = PorterDuffColorFilter(col, PorterDuff.Mode.SRC_IN)
+        layer.draw(c)
+        p.shader = LinearGradient(0f, 0f, 0f, sf * 0.5f, if (dark) 0x22FFFFFF else 0x66FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, sf, sf * 0.5f, p)
+        c.restore()
+        rim(c, shape, sf, if (dark) 0x66FFFFFF else 0xE6FFFFFF.toInt(), 0x0FFFFFFF, if (dark) 0x26FFFFFF else 0x66FFFFFF)
+        return out
+    }
+
+    /** Makes a colour strong enough to read on white. */
+    private fun deep(c: Int): Int {
+        val hsv = FloatArray(3)
+        Color.colorToHSV(c, hsv)
+        if (hsv[1] < 0.15f) return 0xFF3A3A3C.toInt()
+        hsv[1] = hsv[1].coerceAtLeast(0.55f)
+        hsv[2] = hsv[2].coerceIn(0.45f, 0.82f)
+        return Color.HSVToColor(hsv)
     }
 
     private fun toBitmap(d: Drawable, s: Int): Bitmap {
@@ -137,19 +174,6 @@ object YogiIcons {
         return b
     }
 
-    /** Average colour of a drawable (small render). */
-    private fun avg(d: Drawable): Int {
-        val b = toBitmap(d, 16)
-        var r = 0L; var g = 0L; var bl = 0L; var n = 0L
-        for (y in 0 until 16) for (x in 0 until 16) {
-            val p = b.getPixel(x, y)
-            if (Color.alpha(p) < 128) continue
-            r += Color.red(p); g += Color.green(p); bl += Color.blue(p); n++
-        }
-        if (n == 0L) return Color.WHITE
-        return Color.rgb((r / n).toInt(), (g / n).toInt(), (bl / n).toInt())
-    }
-
     /** The icon's main colour: the strongest hue, weighted by how vivid each pixel is. */
     private fun dominant(d: Drawable): Int {
         val b = toBitmap(d, 28)
@@ -157,39 +181,18 @@ object YogiIcons {
         val sums = Array(12) { FloatArray(3) }
         val hsv = FloatArray(3)
         for (y in 0 until 28) for (x in 0 until 28) {
-            val p = b.getPixel(x, y)
-            if (Color.alpha(p) < 200) continue
-            Color.colorToHSV(p, hsv)
+            val px = b.getPixel(x, y)
+            if (Color.alpha(px) < 200) continue
+            Color.colorToHSV(px, hsv)
             if (hsv[1] < 0.2f || hsv[2] < 0.2f) continue
             val w = hsv[1] * hsv[2]
             val i = ((hsv[0] / 30f).toInt()).coerceIn(0, 11)
             bins[i] += w
-            sums[i][0] += Color.red(p) * w; sums[i][1] += Color.green(p) * w; sums[i][2] += Color.blue(p) * w
+            sums[i][0] += Color.red(px) * w; sums[i][1] += Color.green(px) * w; sums[i][2] += Color.blue(px) * w
         }
-        val best = bins.indices.maxByOrNull { bins[it] } ?: return 0xFF8E8E93.toInt()
+        val best = bins.indices.maxByOrNull { bins[it] } ?: return 0xFF3A3A3C.toInt()
         val w = bins[best]
-        if (w < 8f) return avg(d)
+        if (w < 4f) return 0xFF3A3A3C.toInt()
         return Color.rgb((sums[best][0] / w).toInt().coerceIn(0, 255), (sums[best][1] / w).toInt().coerceIn(0, 255), (sums[best][2] / w).toInt().coerceIn(0, 255))
-    }
-
-    private fun lum(c: Int): Float = (0.299f * Color.red(c) + 0.587f * Color.green(c) + 0.114f * Color.blue(c)) / 255f
-
-    private fun sat(c: Int): Float {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(c, hsv)
-        return hsv[1]
-    }
-
-    /** Lighter (> 1) or darker (< 1) version of a colour. */
-    private fun shade(c: Int, f: Float): Int {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(c, hsv)
-        if (f > 1f) {
-            hsv[2] = (hsv[2] * f).coerceAtMost(1f)
-            hsv[1] = (hsv[1] / f).coerceIn(0f, 1f)
-        } else {
-            hsv[2] = hsv[2] * f
-        }
-        return Color.HSVToColor(hsv)
     }
 }

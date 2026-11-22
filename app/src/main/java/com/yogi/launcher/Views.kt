@@ -153,7 +153,11 @@ class IconView(ctx: Context) : View(ctx) {
         }
         if (item is FolderItem) {
             fill.color = 0x55FFFFFF
-            c.drawPath(shape, fill)
+            val fr = Prefs.folderRadius
+            if (fr >= 0 && !isBig) {
+                val rr = s * fr / 100f
+                c.drawRoundRect(RectF(0f, 0f, s.toFloat(), s.toFloat()), rr, rr, fill)
+            } else c.drawPath(shape, fill)
             if (isBig) {
                 // HyperOS style: 3 × 3 real-size icons you can tap
                 val cell = s / 3f
@@ -695,6 +699,11 @@ class BuiltinWidget(ctx: Context, val kind: String, var style: Int) : View(ctx) 
                 6 -> drawWorld(c)
                 7 -> drawFlip(c)
                 8 -> drawRing(c)
+                9 -> drawOxygenStack(c)
+                10 -> drawHyper(c)
+                11 -> drawIosLock(c)
+                12 -> drawWords(c)
+                13 -> drawDayBars(c)
                 else -> drawBig(c)
             }
         }
@@ -861,14 +870,15 @@ class BuiltinWidget(ctx: Context, val kind: String, var style: Int) : View(ctx) 
         val t = timeText().split(':')
         val hh = t.getOrElse(0) { "" }
         val mm = t.getOrElse(1) { "" }
+        val pad = 26f * d
         white.typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
-        white.textSize = min(height * 0.5f, width * 0.24f)
+        white.textSize = min(height * 0.42f, (width - 2 * pad) * 0.21f)
         white.textAlign = Paint.Align.LEFT
         val wh = white.measureText(hh)
-        val gap = white.textSize * 0.08f
+        val gap = white.textSize * 0.16f
         val wm = white.measureText(mm)
         var x = (width - wh - gap - wm) / 2f
-        val y = height * 0.56f
+        val y = height * 0.5f
         c.drawText(hh, x, y, white)
         x += wh + gap
         val red = white.color
@@ -879,7 +889,140 @@ class BuiltinWidget(ctx: Context, val kind: String, var style: Int) : View(ctx) 
         soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         soft.textSize = 15f * d
         val line = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date()) + (if (battery >= 0) "   ·   $battery%" else "")
-        c.drawText(line, width / 2f, y + 26f * d, soft)
+        c.drawText(line, width / 2f, y + 34f * d, soft)
+    }
+
+    /** OxygenOS 15: hours over minutes (minutes in red) on the left, date and battery on the right. */
+    private fun drawOxygenStack(c: Canvas) {
+        val t = timeText().padStart(5, '0').split(':')
+        val pad = 26f * d
+        white.typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+        white.textAlign = Paint.Align.LEFT
+        white.textSize = min(height * 0.4f, (width - 2 * pad) * 0.3f)
+        val lh = white.textSize * 0.9f
+        val y1 = (height - 2 * lh) / 2f + lh * 0.86f
+        c.drawText(t.getOrElse(0) { "" }, pad, y1, white)
+        val keep = white.color
+        white.color = 0xFFEB0028.toInt()
+        c.drawText(t.getOrElse(1) { "" }, pad, y1 + lh, white)
+        white.color = keep
+        white.textAlign = Paint.Align.CENTER
+        soft.textAlign = Paint.Align.RIGHT
+        soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        val now = Date()
+        soft.textSize = 17f * d
+        c.drawText(SimpleDateFormat("EEEE", Locale.getDefault()).format(now), width - pad, height * 0.42f, soft)
+        soft.textSize = 14f * d
+        c.drawText(SimpleDateFormat("d MMMM", Locale.getDefault()).format(now), width - pad, height * 0.42f + 22f * d, soft)
+        if (battery >= 0) c.drawText((if (charging) "⚡ " else "") + "$battery%", width - pad, height * 0.42f + 42f * d, soft)
+        soft.textAlign = Paint.Align.CENTER
+    }
+
+    /** HyperOS: date on top, big clean time underneath, both on the left. */
+    private fun drawHyper(c: Canvas) {
+        val pad = 24f * d
+        soft.textAlign = Paint.Align.LEFT
+        soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        soft.textSize = 15f * d
+        val top = height * 0.26f
+        c.drawText(SimpleDateFormat("EEE, d MMMM", Locale.getDefault()).format(Date()), pad, top, soft)
+        white.textAlign = Paint.Align.LEFT
+        white.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        white.textSize = min(height * 0.5f, (width - 2 * pad) * 0.32f)
+        c.drawText(timeText(), pad - white.textSize * 0.03f, top + 6f * d + white.textSize * 0.82f, white)
+        val i = info()
+        if (i.isNotEmpty()) {
+            soft.textSize = 13f * d
+            c.drawText(i, pad, min(height - 10f * d, top + 6f * d + white.textSize * 0.82f + 24f * d), soft)
+        }
+        white.textAlign = Paint.Align.CENTER
+        soft.textAlign = Paint.Align.CENTER
+    }
+
+    /** iOS lock screen: small date, then the big rounded time. */
+    private fun drawIosLock(c: Canvas) {
+        soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        soft.textSize = 16f * d
+        val top = height * 0.24f
+        c.drawText(SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(Date()), width / 2f, top, soft)
+        white.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        white.textSize = min(height * 0.56f, width * 0.3f)
+        c.drawText(timeText(), width / 2f, top + white.textSize * 0.92f, white)
+    }
+
+    /** Word clock: "it's quarter past ten". */
+    private fun drawWords(c: Canvas) {
+        val cal = java.util.Calendar.getInstance()
+        val m5 = ((cal.get(java.util.Calendar.MINUTE) + 2) / 5) * 5
+        var hr = cal.get(java.util.Calendar.HOUR)
+        if (m5 > 30) hr += 1
+        val hours = listOf("twelve", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve")
+        val h = hours[hr % 12]
+        val (l1, l2) = when (m5) {
+            0, 60 -> h to "o'clock"
+            5 -> "five past" to h
+            10 -> "ten past" to h
+            15 -> "quarter past" to h
+            20 -> "twenty past" to h
+            25 -> "twenty-five past" to h
+            30 -> "half past" to h
+            35 -> "twenty-five to" to h
+            40 -> "twenty to" to h
+            45 -> "quarter to" to h
+            50 -> "ten to" to h
+            else -> "five to" to h
+        }
+        val pad = 24f * d
+        white.textAlign = Paint.Align.LEFT
+        white.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        var size = height * 0.3f
+        white.textSize = size
+        val widest = maxOf(white.measureText(l1), white.measureText(l2))
+        if (widest > width - 2 * pad) size *= (width - 2 * pad) / widest
+        white.textSize = size
+        soft.textAlign = Paint.Align.LEFT
+        soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        soft.textSize = 14f * d
+        val y0 = (height - size * 2.1f) / 2f
+        c.drawText("it's", pad, y0 + 4f * d, soft)
+        c.drawText(l1, pad, y0 + size, white)
+        val keep = white.color
+        white.color = 0xFFFFC94D.toInt()
+        c.drawText(l2, pad, y0 + size * 2.05f, white)
+        white.color = keep
+        white.textAlign = Paint.Align.CENTER
+        soft.textAlign = Paint.Align.CENTER
+    }
+
+    /** Day bars (Nothing): the time, and 24 bars for the hours of the day. */
+    private fun drawDayBars(c: Canvas) {
+        val pad = 22f * d
+        white.textAlign = Paint.Align.LEFT
+        white.typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+        white.textSize = min(height * 0.42f, (width - 2 * pad) * 0.28f)
+        val ty = height * 0.12f + white.textSize * 0.8f
+        c.drawText(timeText(), pad, ty, white)
+        white.textAlign = Paint.Align.CENTER
+        soft.textAlign = Paint.Align.RIGHT
+        soft.typeface = Typeface.MONOSPACE
+        soft.textSize = 13f * d
+        c.drawText(SimpleDateFormat("EEE dd", Locale.getDefault()).format(Date()).uppercase(), width - pad, ty, soft)
+        soft.textAlign = Paint.Align.CENTER
+        val now = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val gap = 3f * d
+        val bw = (width - 2 * pad - 23 * gap) / 24f
+        val top = ty + 14f * d
+        val bot = height - 14f * d
+        if (bot - top < 6f * d) return
+        for (i in 0 until 24) {
+            p.color = when {
+                i == now -> 0xFFD71921.toInt()
+                i < now -> Color.WHITE
+                else -> 0x40FFFFFF
+            }
+            val x = pad + i * (bw + gap)
+            c.drawRoundRect(RectF(x, top, x + bw, bot), bw / 2, bw / 2, p)
+        }
     }
 
     /** World clock: small day / night dials for the phone's zone and up to three cities. */
@@ -1098,27 +1241,54 @@ class BuiltinWidget(ctx: Context, val kind: String, var style: Int) : View(ctx) 
     }
 }
 
-/** Frame that notices a long press without stealing the touch from the widget inside. */
+/**
+ * Frame that notices a long press without stealing the touch from the widget inside.
+ * Hold, then move the finger: [onDrag] starts moving the widget (like an icon).
+ */
 class LongPressFrame(ctx: Context) : FrameLayout(ctx) {
     var onLong: (() -> Unit)? = null
+    var onDrag: (() -> Unit)? = null
     private var x0 = 0f
     private var y0 = 0f
+    private var fired = false
+    private var dragged = false
     private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
     private val run = Runnable {
+        fired = true
+        parent?.requestDisallowInterceptTouchEvent(true)
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         onLong?.invoke()
     }
 
-    override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+    override fun dispatchTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 x0 = e.x
                 y0 = e.y
-                postDelayed(run, 600)
+                fired = false
+                dragged = false
+                postDelayed(run, 500)
             }
-            MotionEvent.ACTION_MOVE -> if (hypot(e.x - x0, e.y - y0) > slop) removeCallbacks(run)
+            MotionEvent.ACTION_MOVE -> {
+                val dist = hypot(e.x - x0, e.y - y0)
+                if (!fired && dist > slop) removeCallbacks(run)
+                if (fired && !dragged && dist > slop * 2) {
+                    dragged = true
+                    onDrag?.invoke()
+                }
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> removeCallbacks(run)
         }
-        return false
+        if (fired && e.actionMasked == MotionEvent.ACTION_UP) {
+            // the press was a long press: the widget inside must not see a tap
+            val cancel = MotionEvent.obtain(e)
+            cancel.action = MotionEvent.ACTION_CANCEL
+            super.dispatchTouchEvent(cancel)
+            cancel.recycle()
+            return true
+        }
+        val r = super.dispatchTouchEvent(e)
+        // keep the whole gesture, so hold-and-drag works on any part of the widget
+        return if (e.actionMasked == MotionEvent.ACTION_DOWN) true else r
     }
 }
