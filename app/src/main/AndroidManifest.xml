@@ -103,5 +103,19 @@
                 android:resource="@xml/lock_service" />
         </service>
 
+        <!-- backup way to lock the screen on double-tap (only the force-lock policy) -->
+        <receiver
+            android:name=".AdminReceiver"
+            android:exported="true"
+            android:label="Yogi Launcher screen lock"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>

@@ -69,7 +69,7 @@ class Library(private val a: LauncherActivity) {
     private var overlay: View? = null
 
     init {
-        frame.setBackgroundColor(0xB3101014.toInt())
+        frame.setBackgroundColor(when (Prefs.libraryTint) { 0 -> 0x40101014; 2 -> 0xE6101014.toInt(); else -> 0x9E101014.toInt() })
         frame.isClickable = true
         search.background = rounded(0x33FFFFFF, a.dpf(14f))
         search.imeOptions = EditorInfo.IME_ACTION_GO
@@ -183,6 +183,11 @@ class Library(private val a: LauncherActivity) {
 
     fun reload() {
         if (isOpen) rebuild()
+    }
+
+    /** New notification counts: redraw what is on screen, without rebuilding the list. */
+    fun refreshBadges() {
+        if (isOpen) adapter.notifyItemRangeChanged(0, rows.size)
     }
 
     private fun launch(app: AppInfo, v: View?) {
@@ -597,6 +602,10 @@ class Library(private val a: LauncherActivity) {
         box.addView(a.label("${apps.size} apps · hold an app to add it to Home", 12f, 0xCCFFFFFF.toInt()).apply { gravity = Gravity.CENTER }.lin(t = a.dp(10)))
         ov.addView(box, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         frame.addView(ov, FrameLayout.LayoutParams(MATCH, MATCH))
+        val br = a.blurDp(Prefs.blurFolder)
+        if (android.os.Build.VERSION.SDK_INT >= 31 && br > 0f) {
+            col.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(a.dpf(br), a.dpf(br), android.graphics.Shader.TileMode.CLAMP))
+        }
         box.scaleX = 0.8f
         box.scaleY = 0.8f
         box.alpha = 0f
@@ -607,6 +616,7 @@ class Library(private val a: LauncherActivity) {
     private fun closeOverlay() {
         val ov = overlay ?: return
         overlay = null
+        if (android.os.Build.VERSION.SDK_INT >= 31) col.setRenderEffect(null)
         ov.animate().alpha(0f).setDuration(140).withEndAction { frame.removeView(ov) }.start()
     }
 

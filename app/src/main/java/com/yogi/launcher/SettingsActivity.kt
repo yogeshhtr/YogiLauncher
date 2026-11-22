@@ -35,6 +35,8 @@ class SettingsActivity : AppCompatActivity() {
         listOf("about", "ℹ️", "About & reset", "Version, reset layout, icon cache", "about version reset layout cache credits")
     )
 
+    private val BLURS = listOf("Off", "Light", "Medium", "Strong", "Max")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Store.init(this)
@@ -179,6 +181,7 @@ class SettingsActivity : AppCompatActivity() {
             50 -> 3
             else -> 2
         }) { Store.setInt("dock_alpha", listOf(0, 15, 30, 50)[it]); changed() })
+        hs.addView(choice("Hold empty space", listOf("Menu (One UI)", "Edit mode"), Prefs.longPress) { Store.setInt("long_press", it); changed() })
         hs.addView(choice("Lock home screen layout (One UI)", listOf("Off", "On"), if (Prefs.lockLayout) 1 else 0) {
             Store.setBool("lock_layout", it == 1)
             changed()
@@ -202,6 +205,7 @@ class SettingsActivity : AppCompatActivity() {
             Store.setInt("folder_preview", it)
             changed()
         })
+        fc.addView(choice("Blur behind open folders", BLURS, Prefs.blurFolder) { Store.setInt("blur_folder", it); changed() })
         fc.addView(choice("New folders", listOf("Small 1 × 1", "Large 2 × 2 (HyperOS)"), if (Prefs.bigFolders) 1 else 0) {
             Store.setBool("big_folders", it == 1)
             changed()
@@ -245,6 +249,9 @@ class SettingsActivity : AppCompatActivity() {
                 changed()
             })
         }
+        dr.addView(choice("Background blur", BLURS, Prefs.blurLibrary) { Store.setInt("blur_library", it); changed() })
+        dr.addView(choice("Background", listOf("Clear", "Glass", "Dark"), Prefs.libraryTint) { Store.setInt("library_tint", it); changed() })
+        dr.addView(choice("Category popup blur", BLURS, Prefs.blurFolder) { Store.setInt("blur_folder", it); changed() })
         dr.addView(choice("Letters (A–Z headers and side bar)", listOf("On", "Off"), if (Prefs.drawerLetters) 0 else 1) {
             Store.setBool("drawer_letters", it == 0)
             changed()
@@ -383,8 +390,24 @@ class SettingsActivity : AppCompatActivity() {
         val bc = card()
         val badges = Badges.allowed(this)
         bc.addView(statusRow("🔴", "Notification badges & previews", if (badges) "On" else "Turn on", badges) { Badges.openSettings(this) })
-        val lock = Badges.lockAllowed(this)
-        bc.addView(statusRow("🔒", "Double-tap to lock", if (lock) "On" else "Turn on", lock) { Access.ask(this, true) })
+        val lockOn = Badges.lockAllowed(this)
+        val running = LockService.instance != null
+        bc.addView(statusRow("🔒", "Double-tap lock · accessibility", when {
+            running -> "Working"
+            lockOn -> "On but not running · tap"
+            else -> "Turn on"
+        }, running) { Access.ask(this, true) })
+        val admin = Locker.adminActive(this)
+        bc.addView(statusRow("🛡", "Double-tap lock · device admin (backup)", if (admin) "On" else "Turn on", admin) {
+            if (admin) Locker.removeAdmin(this) else Locker.askAdmin(this)
+            col.postDelayed({ build() }, 800)
+        })
+        bc.addView(label("Accessibility lock keeps fingerprint and face unlock. Device admin is a backup that always works, " +
+            "but Android then asks for your PIN once after locking. If accessibility says “On but not running”, " +
+            "turn it off and on again (Android stops it after the app is updated).", 12f, C.SUB).lin(t = dp(8)))
+        bc.addView(link("🧪", "Test: lock the screen now") {
+            if (!Locker.lock(this)) toast("Turn on one of the two lock options first")
+        })
         bc.addView(label("You can uninstall the old “Yogi Launcher Plus” app: everything is inside Yogi Launcher now.", 12f, C.SUB).lin(t = dp(8)))
         col.addView(bc)
     }
@@ -468,11 +491,12 @@ class SettingsActivity : AppCompatActivity() {
         val cur = Prefs.iconPack
         val name = when {
             cur.isEmpty() -> "Original (Pixel / system)"
-            cur == YogiIcons.PACK -> "Yogi icons"
+            YogiIcons.isYogi(cur) -> YogiIcons.name(cur)
             else -> packs.firstOrNull { it.first == cur }?.second ?: cur
         }
         return link("🎨", "Icon pack: $name") {
-            val names = listOf("Original (Pixel / system icons)", "✨ Yogi icons (built in: phone, camera, maps…)") + packs.map { it.second } + listOf("🔎 Get icon packs…")
+            val names = listOf("Original (Pixel / system icons)", "✨ Yogi Glass (liquid glass, every app)", "⚫ Yogi Dark (Nothing style)",
+                "⚪ Yogi Light (iOS tinted)") + packs.map { it.second } + listOf("🔎 Get icon packs…")
             AlertDialog.Builder(this)
                 .setTitle("Icon pack")
                 .setItems(names.toTypedArray()) { _, i ->
@@ -481,15 +505,15 @@ class SettingsActivity : AppCompatActivity() {
                             Store.setStr("icon_pack", "")
                             changed()
                         }
-                        i == 1 -> {
-                            Store.setStr("icon_pack", YogiIcons.PACK)
+                        i in 1..3 -> {
+                            Store.setStr("icon_pack", listOf(YogiIcons.PACK, YogiIcons.DARK, YogiIcons.LIGHT)[i - 1])
                             changed()
-                            toast("Yogi icons on · other apps keep their own icon")
+                            toast(YogiIcons.name(Prefs.iconPack) + " on")
                         }
-                        i <= packs.size + 1 -> {
-                            Store.setStr("icon_pack", packs[i - 2].first)
+                        i <= packs.size + 3 -> {
+                            Store.setStr("icon_pack", packs[i - 4].first)
                             changed()
-                            toast("Icons from ${packs[i - 2].second}")
+                            toast("Icons from ${packs[i - 4].second}")
                         }
                         else -> try {
                             startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://search?q=icon%20pack&c=apps")))

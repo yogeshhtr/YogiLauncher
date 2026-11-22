@@ -121,6 +121,14 @@ object Prefs {
     val lockLayout: Boolean get() = Store.bool("lock_layout", false)
     /** OxygenOS: hidden apps live in a Hidden space (two-finger swipe up / search "hidden") */
     val hiddenLock: Boolean get() = Store.bool("hidden_lock", true)
+    /** blur behind folders (home + App Library categories): 0 off · 1 light · 2 medium · 3 strong · 4 max */
+    val blurFolder: Int get() = Store.int("blur_folder", 2)
+    /** blur behind the App Library */
+    val blurLibrary: Int get() = Store.int("blur_library", 2)
+    /** how see-through the App Library is: 0 clear · 1 glass · 2 dark */
+    val libraryTint: Int get() = Store.int("library_tint", 1)
+    /** long-press empty space: 0 menu (One UI) · 1 edit mode directly */
+    val longPress: Int get() = Store.int("long_press", 0)
     /** wallpaper dimming over the home screen, 0–60 % */
     val wallDim: Int get() = Store.int("wall_dim", 0)
 
@@ -421,7 +429,7 @@ object Icons {
             }
         }
         // 0) built-in Yogi icons for common apps
-        val yogi = if (Prefs.iconPack == YogiIcons.PACK) YogiIcons.render(app, size) else null
+        val yogi = if (YogiIcons.isYogi(Prefs.iconPack)) YogiIcons.render(app, size, Prefs.iconPack) else null
         // 1) the chosen icon pack (its icons keep their own design)
         val packIcon = if (yogi == null) IconPacks.drawable(ctx, app) else null
         val b = if (yogi != null) yogi else if (packIcon != null) {
@@ -607,7 +615,7 @@ object IconPacks {
     }
 
     fun drawable(ctx: Context, app: AppInfo): android.graphics.drawable.Drawable? {
-        if (Prefs.iconPack.isEmpty() || Prefs.iconPack == YogiIcons.PACK) return null
+        if (Prefs.iconPack.isEmpty() || YogiIcons.isYogi(Prefs.iconPack)) return null
         ensure(ctx)
         val r = res ?: return null
         val name = map["${app.pkg}/${app.cls}"] ?: map[app.pkg] ?: return null

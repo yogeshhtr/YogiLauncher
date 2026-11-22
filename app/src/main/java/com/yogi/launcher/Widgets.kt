@@ -28,6 +28,7 @@ import org.json.JSONArray
 object WidgetHost {
     private var hostRef: AppWidgetHost? = null
     private val sizes = HashMap<Int, Long>()
+    private val views = HashMap<Int, AppWidgetHostView>()
 
     fun host(ctx: Context): AppWidgetHost =
         hostRef ?: AppWidgetHost(ctx.applicationContext, 0x5947).also {
@@ -40,8 +41,17 @@ object WidgetHost {
     /** The widget's view, made with the activity so it gets the right theme and fonts. */
     fun create(ctx: Context, id: Int): AppWidgetHostView? {
         val info = try { manager(ctx).getAppWidgetInfo(id) } catch (_: Exception) { null } ?: return null
+        views[id]?.let { old ->
+            if (old.context === ctx && old.appWidgetInfo?.provider == info.provider) {
+                (old.parent as? android.view.ViewGroup)?.removeView(old)
+                return old
+            }
+        }
         return try {
-            host(ctx).createView(ctx, id, info).also { it.setPadding(0, 0, 0, 0) }
+            host(ctx).createView(ctx, id, info).also {
+                it.setPadding(0, 0, 0, 0)
+                views[id] = it
+            }
         } catch (_: Exception) {
             null
         }
@@ -50,6 +60,7 @@ object WidgetHost {
     fun delete(ctx: Context, id: Int) {
         if (id < 0) return
         sizes.remove(id)
+        views.remove(id)
         try { host(ctx).deleteAppWidgetId(id) } catch (_: Exception) {}
     }
 

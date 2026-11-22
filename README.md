@@ -5,6 +5,13 @@
 A clean, fast home screen for Android. It is iPhone-simple, has HyperOS-style folders, and adds advanced extras.
 It's small (only AndroidX libraries, no tracking, no ads) and works fully offline.
 
+## New in v7
+* **Double-tap lock that works**: accessibility (keeps fingerprint/face unlock) with a **device admin backup**, a status check (Working / On but not running) and a *Test: lock now* button in Settings → Gestures & notifications.
+* **Hold empty space → One UI-style menu** (Edit, Add widget, Wallpapers, Settings, Unlock layout), so Settings is always reachable, even with the layout locked.
+* **Blur levels** (Off, Light, Medium, Strong, Max) for home folders, App Library categories and the App Library background, plus a Clear / Glass / Dark library background. On phones that allow it, the wallpaper itself blurs too, like iOS and HyperOS.
+* **New Yogi icon styles that keep every app recognisable**: *Glass* (liquid glass), *Dark* (Nothing) and *Light* (iOS tinted). WhatsApp, Viber and Telegram each keep their own look.
+* Faster: widgets are reused instead of reloaded on every home rebuild; new notifications only redraw badges.
+
 ## New in v6
 * **One app.** Badges, notification previews and double-tap lock are built in. You can uninstall *Yogi Launcher Plus*.
 * **Private space and work apps**, like the Pixel launcher:

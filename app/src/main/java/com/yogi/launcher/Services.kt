@@ -152,6 +152,45 @@ class LockService : AccessibilityService() {
     }
 }
 
+/** Device admin, used only to lock the screen when accessibility is off or not running. */
+class AdminReceiver : android.app.admin.DeviceAdminReceiver()
+
+object Locker {
+    private fun comp(ctx: Context) = android.content.ComponentName(ctx, AdminReceiver::class.java)
+    private fun dpm(ctx: Context) = ctx.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+
+    fun adminActive(ctx: Context): Boolean = try { dpm(ctx).isAdminActive(comp(ctx)) } catch (_: Exception) { false }
+
+    fun askAdmin(a: android.app.Activity) {
+        try {
+            a.startActivity(Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                .putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, comp(a))
+                .putExtra(android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                    "Lets Yogi Launcher lock the screen when you double-tap the home screen. It is used for nothing else."))
+        } catch (_: Exception) {
+            a.toast("This phone doesn't allow it")
+        }
+    }
+
+    fun removeAdmin(ctx: Context) {
+        try { dpm(ctx).removeActiveAdmin(comp(ctx)) } catch (_: Exception) {}
+    }
+
+    /** Accessibility first (keeps fingerprint unlock), then device admin. */
+    fun lock(ctx: Context): Boolean {
+        if (LockService.lock()) return true
+        if (adminActive(ctx)) {
+            return try {
+                dpm(ctx).lockNow()
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+        return false
+    }
+}
+
 object System2 {
     /** Pulls down the notification shade (works on most phones). */
     fun expandNotifications(ctx: Context): Boolean = try {

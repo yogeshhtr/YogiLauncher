@@ -144,14 +144,14 @@ class LauncherActivity : AppCompatActivity() {
         }
         pager.onDoubleTap = { doubleTap() }
         pager.onTwoFingerUp = { openHidden() }
-        pager.onLongPress = { setEdit(true) }
+        pager.onLongPress = { if (Prefs.longPress == 1 && !Prefs.lockLayout) setEdit(true) else homeMenu() }
         dots.onTap = { openLibrary(true) }
 
         root.setOnDragListener { _, e -> onDragEvent(e) }
         onBackPressedDispatcher.addCallback(this, back)
         Badges.listener = {
             updateBadges()
-            library?.reload()
+            library?.refreshBadges()
         }
         val pf = android.content.IntentFilter()
         for (act in listOf(Intent.ACTION_MANAGED_PROFILE_AVAILABLE, Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE,
@@ -876,11 +876,66 @@ class LauncherActivity : AppCompatActivity() {
 
     // ===================================================================== folders (large, blurred, easy to tap)
 
-    private fun blur(on: Boolean) {
+    /** Blur radius in dp for a level 0–4. */
+    fun blurDp(level: Int): Float = when (level) { 0 -> 0f; 1 -> 8f; 3 -> 30f; 4 -> 48f; else -> 18f }
+
+    /**
+     * Blurs the home screen behind folders / the App Library: our icons with RenderEffect, and on phones that allow it
+     * the wallpaper too (window blur-behind, like iOS and HyperOS).
+     */
+    private fun blur(on: Boolean, level: Int = Prefs.blurFolder) {
+        val r = if (on) blurDp(level) else 0f
         if (Build.VERSION.SDK_INT >= 31) {
-            home.setRenderEffect(if (on) RenderEffect.createBlurEffect(dpf(18f), dpf(18f), Shader.TileMode.CLAMP) else null)
+            home.setRenderEffect(if (r > 0f) RenderEffect.createBlurEffect(dpf(r), dpf(r), Shader.TileMode.CLAMP) else null)
+            home.alpha = if (on && r == 0f) 0.4f else 1f
+            try {
+                val wm = getSystemService(android.view.WindowManager::class.java)
+                if (wm?.isCrossWindowBlurEnabled == true) {
+                    val lp = window.attributes
+                    if (r > 0f) {
+                        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        lp.blurBehindRadius = dp(r.toInt())
+                    } else {
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        lp.blurBehindRadius = 0
+                    }
+                    window.attributes = lp
+                }
+            } catch (_: Throwable) {
+            }
         } else {
             home.alpha = if (on) 0.35f else 1f
+        }
+    }
+
+    /** One UI-style menu when you hold empty space (also the way to Settings while the layout is locked). */
+    private fun homeMenu() {
+        if (editing) return
+        popup?.dismiss()
+        val box = vbox()
+        box.background = rounded(0xF2242426.toInt(), dpf(18f))
+        box.setPadding(0, dp(4), 0, dp(4))
+        if (Prefs.lockLayout) {
+            menuRow(box, "🔓", "Unlock home screen layout") {
+                Store.setBool("lock_layout", false)
+                toast("Layout unlocked")
+            }
+        } else {
+            menuRow(box, "✎", "Edit home screen") { setEdit(true) }
+            menuRow(box, "＋", "Add a widget") { widgets.openPicker(true) }
+        }
+        menuRow(box, "🖼", "Wallpapers") { startActivity(Intent(this, SettingsActivity::class.java).putExtra("page", "wallpaper")) }
+        menuRow(box, "⚙", "Launcher settings") { startActivity(Intent(this, SettingsActivity::class.java)) }
+        val w = dp(250)
+        box.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
+        val p = PopupWindow(box, w, ViewGroup.LayoutParams.WRAP_CONTENT, true)
+        p.elevation = dpf(12f)
+        p.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        p.isOutsideTouchable = true
+        popup = p
+        try {
+            p.showAtLocation(root, Gravity.CENTER, 0, 0)
+        } catch (_: Exception) {
         }
     }
 
@@ -1014,7 +1069,7 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     fun libraryOpened() {
-        blur(true)
+        blur(true, Prefs.blurLibrary)
     }
 
     // ===================================================================== gestures
@@ -1022,13 +1077,18 @@ class LauncherActivity : AppCompatActivity() {
     /** Double-tap on empty space: lock the screen (accessibility switch), otherwise explain how. */
     private fun doubleTap() {
         if (!Prefs.doubleTapLock || editing) return
-        if (LockService.lock()) return
-        if (Store.bool("dt_asked")) {
-            openLibrary(true)
-            return
-        }
-        Store.setBool("dt_asked", true)
-        Access.ask(this, true)
+        if (Locker.lock(this)) return
+        val enabled = Badges.lockAllowed(this)
+        AlertDialog.Builder(this)
+            .setTitle("Double-tap to lock")
+            .setMessage(if (enabled) "The accessibility switch is on, but Android isn't running it (this happens after an update). " +
+                "Turn “Yogi Launcher double-tap lock” off and on again, or use the device admin backup."
+            else "Choose how Yogi Launcher may lock the screen:\n\n• Accessibility: keeps fingerprint / face unlock.\n" +
+                "• Device admin: always works, asks for your PIN once after locking.")
+            .setPositiveButton("Accessibility") { _, _ -> Access.ask(this, true) }
+            .setNeutralButton("Device admin") { _, _ -> Locker.askAdmin(this) }
+            .setNegativeButton("Not now", null)
+            .show()
     }
 
     private fun closeAll(): Boolean {
