@@ -22,7 +22,10 @@ sealed class Item {
                 "f" -> FolderItem(o.optString("n", "Folder"), o.optJSONArray("a")?.strings()?.toMutableList() ?: ArrayList(),
                     o.optLong("id", System.nanoTime()), o.optBoolean("big", false))
                 "w" -> WidgetItem(o.optString("k", "clock"), o.optInt("wid", -1), o.optInt("w", 4), o.optInt("h", 2),
-                    o.optInt("s", 0), o.optLong("id", System.nanoTime()))
+                    o.optInt("s", 0), o.optLong("id", System.nanoTime())).also { w ->
+                    val ks = o.optJSONArray("kids")
+                    if (ks != null) for (i in 0 until ks.length()) (from(ks.optJSONObject(i)) as? WidgetItem)?.let { w.kids.add(it) }
+                }
                 else -> null
             }
         }
@@ -47,8 +50,15 @@ class FolderItem(var name: String, val apps: MutableList<String>, val id: Long =
 class WidgetItem(val kind: String, val wid: Int, var sw: Int, var sh: Int, var style: Int = 0, val id: Long = System.nanoTime()) : Item() {
     override val w: Int get() = sw
     override val h: Int get() = sh
+    /** the widgets of a smart stack ([kind] = "stack"); [style] is the card shown */
+    val kids: MutableList<WidgetItem> = ArrayList()
     override fun json(): JSONObject = JSONObject().put("t", "w").put("k", kind).put("wid", wid).put("w", sw).put("h", sh)
-        .put("s", style).put("id", id)
+        .put("s", style).put("id", id).also { o ->
+            if (kids.isNotEmpty()) o.put("kids", JSONArray().also { a -> for (k in kids) a.put(k.json()) })
+        }
+
+    /** this widget and, for a stack, every widget inside it */
+    fun all(): List<WidgetItem> = listOf(this) + kids
 }
 
 /** Where an item is: on a page cell (its top-left cell), in the dock, or inside a folder. */
@@ -369,7 +379,7 @@ object Home {
     }
 
     /** All home-screen widgets (to clean up their ids). */
-    fun widgets(): List<WidgetItem> = pages.flatMap { p -> p.filterIsInstance<WidgetItem>() }
+    fun widgets(): List<WidgetItem> = pages.flatMap { p -> p.filterIsInstance<WidgetItem>().flatMap { it.all() } }
 
     /** Removes empty pages (keeps at least one). */
     fun compact(keepTrailing: Boolean = false) {

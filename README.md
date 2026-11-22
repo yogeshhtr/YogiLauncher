@@ -5,6 +5,12 @@
 A clean, fast home screen for Android. It is iPhone-simple, has HyperOS-style folders, and adds advanced extras.
 It's small (only AndroidX libraries, no tracking, no ads) and works fully offline.
 
+## New in v8
+* **Smart stack** (iOS): several widgets in one spot, swipe up/down to flip. Add it from *Add widget*, or hold any widget → *Make a smart stack*. Works with Yogi clocks, calendar, battery, suggestions and Android widgets.
+* **Smart suggestions**: a widget and an App Library row with the apps you usually open at this time of day.
+* **Backup & restore**: save your layout and all settings to a file and restore it after a reset or on a new phone.
+* **Lock screen page**: double-tap lock status and test, *Lock screen now* in the hold menu, your own photo as the lock screen wallpaper, and links to the phone's own lock screen clock and notification styles.
+
 ## New in v7
 * **Double-tap lock that works**: accessibility (keeps fingerprint/face unlock) with a **device admin backup**, a status check (Working / On but not running) and a *Test: lock now* button in Settings → Gestures & notifications.
 * **Hold empty space → One UI-style menu** (Edit, Add widget, Wallpapers, Settings, Unlock layout), so Settings is always reachable, even with the layout locked.

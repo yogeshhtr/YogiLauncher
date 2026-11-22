@@ -418,8 +418,11 @@ class Pager(ctx: Context) : FrameLayout(ctx) {
     var onTwoFingerUp: (() -> Unit)? = null
     private var twoY = -1f
     private var twoFired = false
+    /** set by a widget stack under the finger: its vertical swipes are its own */
+    var blockVertical = false
 
     override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) blockVertical = false
         when (e.actionMasked) {
             MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) {
                 twoY = (e.getY(0) + e.getY(1)) / 2
@@ -518,7 +521,7 @@ class Pager(ctx: Context) : FrameLayout(ctx) {
             parent?.requestDisallowInterceptTouchEvent(true)
             return true
         }
-        if (!tracking && !vertical && e.pointerCount == 1 && twoY < 0 && abs(dy) > slop * 2 && abs(dy) > abs(dx) * 1.3f && isHome()) {
+        if (!tracking && !vertical && !blockVertical && e.pointerCount == 1 && twoY < 0 && abs(dy) > slop * 2 && abs(dy) > abs(dx) * 1.3f && isHome()) {
             vertical = true
             if (dy < 0) onSwipeUp?.invoke() else onSwipeDown?.invoke()
             return true

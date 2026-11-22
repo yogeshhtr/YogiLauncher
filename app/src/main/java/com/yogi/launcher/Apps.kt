@@ -52,6 +52,45 @@ object Store {
     fun obj(k: String): JSONObject = try { JSONObject(str(k, "{}")) } catch (_: Exception) { JSONObject() }
     fun setObj(k: String, o: JSONObject) { setStr(k, o.toString()) }
     fun set(k: String): Set<String> = sp.getStringSet(k, emptySet()) ?: emptySet()
+
+    /** Everything, for a backup file. */
+    fun export(): JSONObject {
+        val o = JSONObject()
+        for ((k, v) in sp.all) {
+            val e = JSONObject()
+            when (v) {
+                is String -> e.put("t", "s").put("v", v)
+                is Int -> e.put("t", "i").put("v", v)
+                is Boolean -> e.put("t", "b").put("v", v)
+                is Long -> e.put("t", "l").put("v", v)
+                is Float -> e.put("t", "f").put("v", v.toDouble())
+                is Set<*> -> e.put("t", "set").put("v", org.json.JSONArray(v.map { it.toString() }))
+                else -> continue
+            }
+            o.put(k, e)
+        }
+        return o
+    }
+
+    /** Puts a backup back (keeps keys that are not in the backup). */
+    fun restore(o: JSONObject) {
+        val ed = sp.edit()
+        for (k in o.keys()) {
+            val e = o.optJSONObject(k) ?: continue
+            when (e.optString("t")) {
+                "s" -> ed.putString(k, e.optString("v"))
+                "i" -> ed.putInt(k, e.optInt("v"))
+                "b" -> ed.putBoolean(k, e.optBoolean("v"))
+                "l" -> ed.putLong(k, e.optLong("v"))
+                "f" -> ed.putFloat(k, e.optDouble("v").toFloat())
+                "set" -> {
+                    val a = e.optJSONArray("v") ?: continue
+                    ed.putStringSet(k, (0 until a.length()).map { a.optString(it) }.toSet())
+                }
+            }
+        }
+        ed.commit()
+    }
     fun setSet(k: String, v: Set<String>) { sp.edit().putStringSet(k, HashSet(v)).apply() }
 }
 
@@ -227,6 +266,39 @@ object Apps {
         val o = Store.obj("launches")
         o.put(app.key, o.optInt(app.key) + 1)
         Store.setObj("launches", o)
+        // smart suggestions: what you open at this time of day, and lately
+        val hb = Store.obj("launch_h")
+        val hk = app.key + "#" + bucket()
+        hb.put(hk, hb.optInt(hk) + 1)
+        Store.setObj("launch_h", hb)
+        val t = Store.obj("launch_t")
+        t.put(app.key, System.currentTimeMillis())
+        Store.setObj("launch_t", t)
+    }
+
+    /** 3-hour part of the day (0..7) */
+    private fun bucket(): Int = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) / 3
+
+    /** Apps you are likely to open now: same time of day counts most, then recent, then overall. */
+    fun smart(n: Int): List<AppInfo> {
+        val o = Store.obj("launches")
+        val hb = Store.obj("launch_h")
+        val t = Store.obj("launch_t")
+        val b = bucket()
+        val near = listOf((b + 7) % 8, (b + 1) % 8)
+        val now = System.currentTimeMillis()
+        val hidden = Prefs.hidden
+        fun score(a: AppInfo): Double {
+            val total = o.optInt(a.key)
+            if (total == 0) return 0.0
+            val here = hb.optInt(a.key + "#" + b)
+            val around = near.sumOf { hb.optInt(a.key + "#" + it) }
+            val ago = (now - t.optLong(a.key)) / 3600000.0
+            val recent = if (ago < 1) 6.0 else if (ago < 6) 3.0 else if (ago < 24) 1.0 else 0.0
+            return here * 4.0 + around * 1.5 + recent + kotlin.math.ln(1.0 + total) * 2.0
+        }
+        return list.filter { o.optInt(it.key) > 0 && it.key !in hidden && it.profile != Profiles.PRIVATE }
+            .sortedByDescending { score(it) }.take(n)
     }
 
     fun launches(key: String): Int = Store.obj("launches").optInt(key)

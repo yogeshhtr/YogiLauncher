@@ -30,8 +30,10 @@ class SettingsActivity : AppCompatActivity() {
         listOf("library", "📚", "App Library", "Style, letters, categories, opening view", "drawer library app list letters categories chips columns ios all apps folder horizontal vertical"),
         listOf("private", "🔒", "Private space & work apps", "Show, lock, settings, work profile", "private space secret hidden work profile pause lock unlock"),
         listOf("wallpaper", "🖼", "Wallpaper", "Yogi wallpapers, your photos, dim", "wallpaper background photo dim dark"),
+        listOf("lockscreen", "🔐", "Lock screen", "Double-tap lock, lock wallpaper, clock", "lock screen lockscreen double tap wallpaper clock admin accessibility sleep"),
         listOf("gestures", "👆", "Gestures & notifications", "Swipes, double-tap lock, badges", "gesture swipe double tap lock badge notification dots accessibility"),
         listOf("hidden", "🙈", "Hidden space", "Hidden apps, screen lock (OxygenOS)", "hidden hide apps space secret oxygen"),
+        listOf("backup", "💾", "Backup & restore", "Save your layout and settings to a file", "backup restore export import save file layout move phone"),
         listOf("about", "ℹ️", "About & reset", "Version, reset layout, icon cache", "about version reset layout cache credits")
     )
 
@@ -71,6 +73,8 @@ class SettingsActivity : AppCompatActivity() {
             "private" -> privateSpace(col)
             "wallpaper" -> wallpaper(col)
             "gestures" -> gestures(col)
+            "lockscreen" -> lockScreen(col)
+            "backup" -> backup(col)
             "hidden" -> hidden(col)
             "about" -> about(col)
             else -> main(col)
@@ -102,8 +106,8 @@ class SettingsActivity : AppCompatActivity() {
         st.addView(statusRow("🏠", "Default home screen", if (isDefault) "Yes" else "Tap to set", isDefault) { System2.askDefault(this) })
         val badges = Badges.allowed(this)
         st.addView(statusRow("🔴", "Notification badges", if (badges) "On" else "Tap to turn on", badges) { Badges.openSettings(this) })
-        val lock = Badges.lockAllowed(this)
-        st.addView(statusRow("🔒", "Double-tap to lock", if (lock) "On" else "Tap to turn on", lock) { Access.ask(this, true) })
+        val lock = LockService.instance != null || Locker.adminActive(this)
+        st.addView(statusRow("🔒", "Double-tap to lock", if (lock) "Working" else "Tap to set up", lock) { openPage("lockscreen") })
         col.addView(st)
 
         val listCard = card()
@@ -390,6 +394,12 @@ class SettingsActivity : AppCompatActivity() {
         val bc = card()
         val badges = Badges.allowed(this)
         bc.addView(statusRow("🔴", "Notification badges & previews", if (badges) "On" else "Turn on", badges) { Badges.openSettings(this) })
+        lockRows(bc, col)
+        bc.addView(label("You can uninstall the old “Yogi Launcher Plus” app: everything is inside Yogi Launcher now.", 12f, C.SUB).lin(t = dp(8)))
+        col.addView(bc)
+    }
+
+    private fun lockRows(bc: LinearLayout, col: LinearLayout) {
         val lockOn = Badges.lockAllowed(this)
         val running = LockService.instance != null
         bc.addView(statusRow("🔒", "Double-tap lock · accessibility", when {
@@ -408,8 +418,161 @@ class SettingsActivity : AppCompatActivity() {
         bc.addView(link("🧪", "Test: lock the screen now") {
             if (!Locker.lock(this)) toast("Turn on one of the two lock options first")
         })
-        bc.addView(label("You can uninstall the old “Yogi Launcher Plus” app: everything is inside Yogi Launcher now.", 12f, C.SUB).lin(t = dp(8)))
-        col.addView(bc)
+    }
+
+    // ===================================================================== lock screen
+
+    private fun lockScreen(col: LinearLayout) {
+        pageTitle(col, "lockscreen")
+        val how = card()
+        how.addView(choice("Double-tap empty space on Home", listOf("Lock screen", "Nothing"), if (Prefs.doubleTapLock) 0 else 1) {
+            Store.setBool("dt_lock", it == 0)
+            changed()
+        })
+        lockRows(how, col)
+        how.addView(label("Also: hold empty space on Home → “Lock screen now”.", 12f, C.SUB).lin(t = dp(8)))
+        col.addView(how)
+
+        col.addView(section("LOOK OF THE LOCK SCREEN"))
+        val look = card()
+        look.addView(link("🖼", "Yogi wallpaper on the lock screen") { openPage("wallpaper") })
+        look.addView(link("📷", "Your photo on the lock screen only") {
+            try {
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"), REQ_LOCK_PHOTO)
+            } catch (_: Exception) {
+                toast("No photo picker found")
+            }
+        })
+        look.addView(link("🕐", "Lock screen clock & style (phone settings)") { openSystem(listOf(
+            Intent("android.settings.LOCK_SCREEN_SETTINGS"),
+            Intent().setClassName("com.google.android.apps.wallpaper", "com.android.customization.picker.CustomizationPickerActivity"),
+            Intent().setClassName("com.android.wallpaper", "com.android.customization.picker.CustomizationPickerActivity"),
+            Intent(Intent.ACTION_SET_WALLPAPER),
+            Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS))) })
+        look.addView(link("🔔", "Notifications on the lock screen") { openSystem(listOf(
+            Intent("android.settings.LOCK_SCREEN_SETTINGS"),
+            Intent(android.provider.Settings.ACTION_SETTINGS))) })
+        look.addView(link("🔑", "PIN, fingerprint & face unlock") { openSystem(listOf(
+            Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS),
+            Intent(android.provider.Settings.ACTION_SETTINGS))) })
+        look.addView(label("Android lets only the phone itself draw the lock screen, so no launcher can replace it. " +
+            "Yogi Launcher can change its wallpaper, and the links above open your phone's own lock screen styles " +
+            "(clock faces on Pixel 8+ / Samsung / OxygenOS).", 12f, C.SUB).lin(t = dp(8)))
+        col.addView(look)
+    }
+
+    private fun openSystem(list: List<Intent>) {
+        for (i in list) {
+            try {
+                startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (_: Exception) {
+            }
+        }
+        toast("Your phone doesn't have this setting")
+    }
+
+    // ===================================================================== backup
+
+    private fun backup(col: LinearLayout) {
+        pageTitle(col, "backup")
+        val c = card()
+        c.addView(label("Saves your home screen, folders, dock, widgets, hidden apps and every setting to a small file. " +
+            "Keep it in Drive or Downloads, and restore it after a reset or on a new phone.", 13f, C.SUB).lin(b = dp(6)))
+        c.addView(link("⬆", "Save a backup file") {
+            val name = "YogiLauncher-backup-" + java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) + ".json"
+            try {
+                startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/json").putExtra(Intent.EXTRA_TITLE, name), REQ_EXPORT)
+            } catch (_: Exception) {
+                toast("No file app found")
+            }
+        })
+        c.addView(link("⬇", "Restore from a backup file") {
+            try {
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), REQ_IMPORT)
+            } catch (_: Exception) {
+                toast("No file app found")
+            }
+        })
+        c.addView(label("Android widgets from other apps can't be copied between phones: after restoring on a new phone, " +
+            "add them again (Yogi clocks, stacks and suggestions come back by themselves).", 12f, C.SUB).lin(t = dp(8)))
+        col.addView(c)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(req: Int, res: Int, data: Intent?) {
+        super.onActivityResult(req, res, data)
+        val uri = data?.data ?: return
+        if (res != RESULT_OK) return
+        when (req) {
+            REQ_EXPORT -> try {
+                val o = org.json.JSONObject().put("yogi_backup", 1).put("time", System.currentTimeMillis()).put("prefs", Store.export())
+                contentResolver.openOutputStream(uri, "wt")?.use { it.write(o.toString(1).toByteArray()) }
+                toast("Backup saved ✅")
+            } catch (_: Exception) {
+                toast("Couldn't save the file")
+            }
+            REQ_IMPORT -> try {
+                val txt = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+                val o = org.json.JSONObject(txt)
+                val prefs = o.optJSONObject("prefs")
+                if (o.optInt("yogi_backup") != 1 || prefs == null) {
+                    toast("This isn't a Yogi Launcher backup")
+                    return
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("Restore this backup?")
+                    .setMessage("Your current home screen and settings are replaced by the ones in the file.")
+                    .setPositiveButton("Restore") { _, _ -> restore(prefs) }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } catch (_: Exception) {
+                toast("Couldn't read the file")
+            }
+            REQ_LOCK_PHOTO -> {
+                toast("Setting lock screen wallpaper…")
+                Thread {
+                    val ok = try {
+                        val wm = android.app.WallpaperManager.getInstance(this)
+                        contentResolver.openInputStream(uri)?.use { s ->
+                            if (android.os.Build.VERSION.SDK_INT >= 24) wm.setStream(s, null, true, android.app.WallpaperManager.FLAG_LOCK)
+                            else wm.setStream(s)
+                        }
+                        true
+                    } catch (_: Exception) {
+                        false
+                    }
+                    runOnUiThread { toast(if (ok) "Lock screen wallpaper set ✨" else "This phone didn't allow it") }
+                }.start()
+            }
+        }
+    }
+
+    private fun restore(prefs: org.json.JSONObject) {
+        val old = Home.widgets().filter { it.kind == "app" }.map { it.wid }.toSet()
+        Store.restore(prefs)
+        Home.load()
+        // Android widgets that don't exist on this phone are dropped
+        val mgr = WidgetHost.manager(this)
+        fun ok(w: WidgetItem) = w.kind != "app" || (try { mgr.getAppWidgetInfo(w.wid) } catch (_: Exception) { null }) != null
+        for (p in Home.pages) for (i in p.indices) {
+            val w = p[i] as? WidgetItem ?: continue
+            w.kids.removeAll { !ok(it) }
+            if (!ok(w) || (w.kind == "stack" && w.kids.isEmpty())) p[i] = null
+            else w.style = w.style.coerceIn(0, (w.kids.size - 1).coerceAtLeast(0))
+        }
+        Home.save()
+        val now = Home.widgets().filter { it.kind == "app" }.map { it.wid }.toSet()
+        for (id in old - now) WidgetHost.delete(this, id)
+        changed()
+        toast("Restored ✅ Go back to the home screen")
+    }
+
+    private companion object {
+        const val REQ_EXPORT = 5101
+        const val REQ_IMPORT = 5102
+        const val REQ_LOCK_PHOTO = 5103
     }
 
     private fun hidden(col: LinearLayout) {

@@ -314,6 +314,7 @@ class LauncherActivity : AppCompatActivity() {
         val showLabels = Prefs.labels
         builtinViews.clear()
         liveViews.clear()
+        suggestViews.clear()
         val margin = sideMargin()
         for ((p, page) in Home.pages.withIndex()) {
             val g = GridPage(this, Home.cols, Home.rows)
@@ -924,6 +925,7 @@ class LauncherActivity : AppCompatActivity() {
             menuRow(box, "✎", "Edit home screen") { setEdit(true) }
             menuRow(box, "＋", "Add a widget") { widgets.openPicker(true) }
         }
+        menuRow(box, "🔒", "Lock screen now") { lockNow() }
         menuRow(box, "🖼", "Wallpapers") { startActivity(Intent(this, SettingsActivity::class.java).putExtra("page", "wallpaper")) }
         menuRow(box, "⚙", "Launcher settings") { startActivity(Intent(this, SettingsActivity::class.java)) }
         val w = dp(250)
@@ -1077,6 +1079,11 @@ class LauncherActivity : AppCompatActivity() {
     /** Double-tap on empty space: lock the screen (accessibility switch), otherwise explain how. */
     private fun doubleTap() {
         if (!Prefs.doubleTapLock || editing) return
+        lockNow()
+    }
+
+    /** Locks with accessibility (keeps fingerprint) or device admin; explains what to turn on if neither works. */
+    private fun lockNow() {
         if (Locker.lock(this)) return
         val enabled = Badges.lockAllowed(this)
         AlertDialog.Builder(this)
@@ -1169,6 +1176,7 @@ class LauncherActivity : AppCompatActivity() {
         } else if (ready) {
             for (b in builtinViews) b.refresh()
             for (v in liveViews) v.invalidate()
+            for (s in suggestViews) s.refresh()
         }
         h.removeCallbacks(minuteTick)
         h.post(minuteTick)
@@ -1192,10 +1200,16 @@ class LauncherActivity : AppCompatActivity() {
 
     // ===================================================================== widgets on home pages
 
-    private fun makeWidget(w: WidgetItem, slot: Slot): View? {
-        val inner: View = if (w.kind == "app") {
-            WidgetHost.create(this, w.wid) ?: WidgetHost.broken(this) { buildHome() }
-        } else {
+    private val suggestViews = ArrayList<SuggestRow>()
+
+    /** The view of one widget (also used for each card of a smart stack). */
+    private fun widgetInner(w: WidgetItem, sw: Int, sh: Int): View = when (w.kind) {
+        "app" -> WidgetHost.create(this, w.wid) ?: WidgetHost.broken(this) { buildHome() }
+        "suggest" -> SuggestRow(this, sw.coerceAtLeast(2), if (sh >= 2) 2 else 1, iconPx).also {
+            it.refresh()
+            suggestViews.add(it)
+        }
+        else -> {
             val b = BuiltinWidget(this, w.kind, w.style)
             b.zones = cities(w)
             b.refresh()
@@ -1203,7 +1217,23 @@ class LauncherActivity : AppCompatActivity() {
             builtinViews.add(b)
             b
         }
-        val glass = w.kind == "app" && when (w.style) { 1 -> false; 2 -> true; else -> Prefs.widgetGlass }
+    }
+
+    private fun makeWidget(w: WidgetItem, slot: Slot): View? {
+        val inner: View = if (w.kind == "stack") {
+            val st = WidgetStack(this)
+            st.setCards(w.kids.map { widgetInner(it, w.sw, w.sh) }, w.style)
+            st.onChange = { i ->
+                w.style = i
+                Home.save()
+            }
+            st
+        } else widgetInner(w, w.sw, w.sh)
+        val glass = when (w.kind) {
+            "app" -> when (w.style) { 1 -> false; 2 -> true; else -> Prefs.widgetGlass }
+            "stack" -> Prefs.widgetGlass || w.kids.any { it.kind == "app" }
+            else -> false
+        }
         val f = WidgetHost.frame(this, inner, 26f, glass = glass)
         f.setPadding(dp(4), dp(4), dp(4), dp(4))
         f.onLong = { widgetMenu(f, w, slot) }
@@ -1224,10 +1254,89 @@ class LauncherActivity : AppCompatActivity() {
         }
     }
 
-    private fun widgetMenu(v: View, w: WidgetItem, slot: Slot) {
+    /** Built-in cards that can go into a smart stack: (name, kind, style). */
+    private val STACKABLE = listOf(
+        Triple("Smart suggestions", "suggest", 0),
+        Triple("Nothing two-line clock", "clock", 4),
+        Triple("OxygenOS two-tone clock", "clock", 5),
+        Triple("Big digits clock", "clock", 0),
+        Triple("World clock", "clock", 6),
+        Triple("Analog clock", "clock", 2),
+        Triple("Month calendar", "month", 0),
+        Triple("Date tile", "date", 0),
+        Triple("Battery ring", "battery", 0))
+
+    private fun widgetName(o: WidgetItem): String = when (o.kind) {
+        "app" -> (try { WidgetHost.manager(this).getAppWidgetInfo(o.wid)?.loadLabel(packageManager) } catch (_: Exception) { null }) ?: "Android widget"
+        "stack" -> "Smart stack"
+        "suggest" -> "Suggestions"
+        else -> o.kind.replaceFirstChar { it.uppercase() }
+    }
+
+    /** Adds a card to a stack (turns a single widget into a stack first). */
+    private fun stackAdd(w: WidgetItem, slot: Slot) {
+        val others = (Home.pages.getOrNull(slot.page) ?: emptyArray()).filterIsInstance<WidgetItem>().filter { it !== w }
+        val names = STACKABLE.map { "＋  " + it.first } + others.map { "⇢  Move in: " + widgetName(it) }
+        AlertDialog.Builder(this)
+            .setTitle(if (w.kind == "stack") "Add to the stack" else "Make a smart stack")
+            .setItems(names.toTypedArray()) { _, i ->
+                val stack = if (w.kind == "stack") w else {
+                    val s = WidgetItem("stack", -1, w.sw, w.sh, 0)
+                    s.kids.add(w)
+                    Home.pages[slot.page][slot.index] = s
+                    s
+                }
+                if (i < STACKABLE.size) {
+                    val (_, kind, style) = STACKABLE[i]
+                    stack.kids.add(WidgetItem(kind, -1, stack.sw, stack.sh, style))
+                } else {
+                    val o = others[i - STACKABLE.size]
+                    Home.slotOf(o)?.let { Home.removeAt(it) }
+                    stack.kids.addAll(if (o.kind == "stack") o.kids else listOf(o))
+                }
+                stack.style = stack.kids.size - 1
+                Home.save()
+                buildHome()
+                toast("Swipe up or down on the stack to flip it")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Removes the card that is shown; a stack of one becomes a normal widget again. */
+    private fun stackRemoveCard(w: WidgetItem, slot: Slot) {
+        val k = w.kids.getOrNull(w.style) ?: return
+        w.kids.remove(k)
+        if (k.kind == "app") WidgetHost.delete(this, k.wid)
+        when {
+            w.kids.isEmpty() -> Home.removeAt(slot)
+            w.kids.size == 1 -> {
+                val only = w.kids[0]
+                only.sw = w.sw
+                only.sh = w.sh
+                Home.pages[slot.page][slot.index] = only
+            }
+            else -> w.style = w.style.coerceIn(0, w.kids.size - 1)
+        }
+        Home.save()
+        buildHome()
+    }
+
+    private fun widgetMenu(v: View, top: WidgetItem, slot: Slot) {
         val box = vbox()
         box.background = rounded(0xF2242426.toInt(), dpf(18f))
         box.setPadding(0, dp(4), 0, dp(4))
+        val isStack = top.kind == "stack"
+        // in a stack, the card being shown decides the style options
+        val w = if (isStack) top.kids.getOrNull(top.style) ?: top else top
+        if (isStack) {
+            menuRow(box, "🗂", "Smart stack · " + widgetName(w) + " (${top.style + 1}/${top.kids.size})") {}
+            if (!Prefs.lockLayout) {
+                menuRow(box, "＋", "Add a card to the stack") { stackAdd(top, slot) }
+                menuRow(box, "−", "Remove this card", 0xFFFF6961.toInt()) { stackRemoveCard(top, slot) }
+            }
+            divider(box)
+        }
         if (w.kind == "clock") {
             menuRow(box, "🕐", "Clock style: " + CLOCKS[w.style.coerceIn(0, CLOCKS.size - 1)]) {
                 AlertDialog.Builder(this)
@@ -1244,7 +1353,7 @@ class LauncherActivity : AppCompatActivity() {
             divider(box)
         }
         if (w.kind == "app") {
-            menuRow(box, "◐", "Background: " + listOf("default", "none", "glass")[w.style.coerceIn(0, 2)]) {
+            if (!isStack) menuRow(box, "◐", "Background: " + listOf("default", "none", "glass")[w.style.coerceIn(0, 2)]) {
                 w.style = (w.style + 1) % 3
                 Home.save()
                 buildHome()
@@ -1259,26 +1368,31 @@ class LauncherActivity : AppCompatActivity() {
             }
             divider(box)
         }
-        val sizes = when (w.kind) {
+        if (!isStack && !Prefs.lockLayout) {
+            menuRow(box, "🗂", "Make a smart stack (swipe to flip)") { stackAdd(top, slot) }
+            divider(box)
+        }
+        val sizes = when (top.kind) {
+            "suggest" -> listOf(Home.cols to 1, Home.cols to 2)
             "date", "battery" -> listOf(2 to 2, 1 to 1, 2 to 1)
             "month" -> listOf(Home.cols to 3, 2 to 2, Home.cols to 4, (Home.cols - 1).coerceAtLeast(2) to 3)
             "clock" -> listOf(Home.cols to 2, Home.cols to 3, 2 to 2, Home.cols to 1)
             else -> listOf(Home.cols to 2, Home.cols to 3, 2 to 2, Home.cols to 1, Home.cols to 4)
         }
         for ((sw, sh) in sizes) {
-            if (sw == w.sw && sh == w.sh) continue
+            if (sw == top.sw && sh == top.sh) continue
             menuRow(box, "⤢", "Size $sw × $sh") {
-                if (Home.resize(w, sw, sh)) {
+                if (Home.resize(top, sw, sh)) {
                     Home.save()
                     buildHome()
                 } else toast("Not enough room on this page")
             }
         }
         divider(box)
-        menuRow(box, "✥", "Move") { if (!layoutLocked()) startWidgetDrag(v, w, slot) }
-        if (!Prefs.lockLayout) menuRow(box, "🗑", "Remove widget", 0xFFFF6961.toInt()) {
+        menuRow(box, "✥", "Move") { if (!layoutLocked()) startWidgetDrag(v, top, slot) }
+        if (!Prefs.lockLayout) menuRow(box, "🗑", if (isStack) "Remove the whole stack" else "Remove widget", 0xFFFF6961.toInt()) {
             Home.removeAt(slot)
-            if (w.kind == "app") WidgetHost.delete(this, w.wid)
+            for (x in top.all()) if (x.kind == "app") WidgetHost.delete(this, x.wid)
             Home.save()
             buildHome()
         }
@@ -1364,11 +1478,19 @@ class LauncherActivity : AppCompatActivity() {
 
     fun addBuiltinWidget(kind: String, style: Int) {
         val (w, hgt) = when (kind) {
-            "clock" -> Home.cols to 2
+            "clock", "stack" -> Home.cols to 2
             "month" -> Home.cols to 3
+            "suggest" -> Home.cols to 1
             else -> 2 to 2
         }
         val item = WidgetItem(kind, -1, w, hgt, style)
+        if (kind == "stack") {
+            // a ready-made smart stack: clock, suggestions, calendar, battery
+            item.kids.add(WidgetItem("clock", -1, w, hgt, 4))
+            item.kids.add(WidgetItem("suggest", -1, w, hgt, 0))
+            item.kids.add(WidgetItem("month", -1, w, hgt, 0))
+            item.kids.add(WidgetItem("battery", -1, w, hgt, 0))
+        }
         Home.place(item, homePage())
         Home.save()
         buildHome()

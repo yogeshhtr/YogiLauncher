@@ -175,6 +175,8 @@ class WidgetsPage(private val a: LauncherActivity) {
 
     /** Yogi widgets that are drawn by the launcher itself: (name, kind, style, w, h). */
     private fun builtins(): List<Triple<String, String, Int>> = listOf(
+        Triple("Smart stack (swipe to flip)", "stack", 0),
+        Triple("Smart suggestions (apps for now)", "suggest", 0),
         Triple("Big digits clock", "clock", 0),
         Triple("Dot-matrix clock (Nothing)", "clock", 1),
         Triple("Nothing two-line dot clock", "clock", 4),
@@ -243,7 +245,7 @@ class WidgetsPage(private val a: LauncherActivity) {
             if (home) {
                 val bs = builtins().filter { ql.isEmpty() || it.first.lowercase().contains(ql) || "yogi".contains(ql) }
                 if (bs.isNotEmpty()) list.addView(a.section("YOGI WIDGETS").apply { setPadding(a.dp(4), a.dp(10), 0, a.dp(4)) })
-                val emo = mapOf("clock" to "🕐", "month" to "🗓", "date" to "📅", "battery" to "🔋")
+                val emo = mapOf("clock" to "🕐", "month" to "🗓", "date" to "📅", "battery" to "🔋", "stack" to "🗂", "suggest" to "✨")
                 for ((name, kind, style) in bs) list.addView(row(name, "drawn by Yogi Launcher · no battery cost", null, emo[kind] ?: "▦") {
                     a.addBuiltinWidget(kind, style)
                 })

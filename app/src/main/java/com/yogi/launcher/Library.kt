@@ -317,7 +317,7 @@ class Library(private val a: LauncherActivity) {
                         rebuild()
                         list.scrollToPosition(0)
                     })
-                    val top = Apps.top(8)
+                    val top = Apps.smart(8)
                     if (top.size >= 2) out.add(Row(3, "Suggestions", apps = top))
                     val recent = apps.sortedByDescending { it.updated }.take(8)
                     if (recent.isNotEmpty()) out.add(Row(3, "Recently updated", apps = recent))
@@ -327,7 +327,7 @@ class Library(private val a: LauncherActivity) {
                     if (privateVisible()) out.add(Row(3, "🔒 Private", apps = all.filter { it.profile == Profiles.PRIVATE }))
                 }
                 ALL -> {
-                    val top = Apps.top(cols * 2)
+                    val top = Apps.smart(cols * 2)
                     if (top.isNotEmpty()) {
                         out.add(Row(0, "Suggestions"))
                         top.forEach { out.add(Row(1, app = it)) }
