@@ -1,4 +1,3 @@
 <resources>
     <string name="app_name">Yogi Launcher</string>
-    <string name="lock_desc">Lets Yogi Launcher lock the screen when you double-tap an empty spot on the home screen. It reads nothing on your screen.</string>
 </resources>

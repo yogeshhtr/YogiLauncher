@@ -46,19 +46,21 @@ It's small (only AndroidX libraries, no tracking, no ads) and works fully offlin
 * Hold an app to add it to Home or drag it there. Pull down at the top to close.
 
 ## Gestures
-* Swipe **up**: App Library · swipe **down**: notification shade (or search) · **double-tap** empty space: lock the
-  screen (optional; uses Android's accessibility lock, Android 9+) · **Home button**: close everything and go back to
-  page 1.
+* Swipe **up**: App Library · swipe **down**: notification shade (or search) · **double-tap** empty space: search ·
+  **Home button**: close everything and go back to page 1.
+
+No risky permissions: there is no accessibility service and no package-delete permission, so Play Protect installs it
+without warnings. Uninstall opens Android's own app page.
 
 ## Widgets page (swipe right)
 * Add any **real Android widget** (clock, weather, calendar, notes, music…) with rounded corners. Hold one to
   remove it.
 
 ## Settings
-* Default launcher, badges and lock status.
+* Default launcher and badges status.
 * Icon shape, size, style, labels and badge style.
 * 4 or 5 columns, the clock, dock glass, and whether new apps go to Home.
-* Swipe-down action, double-tap lock.
+* Swipe-down and double-tap actions.
 * Hidden apps, wallpaper, layout reset, and rebuilding the icon cache.
 
 ## First start

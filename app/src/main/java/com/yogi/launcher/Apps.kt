@@ -67,6 +67,7 @@ object Prefs {
     val badges: Int get() = Store.int("badges", 0)
     /** 0 notifications · 1 search */
     val swipeDown: Int get() = Store.int("swipe_down", 0)
+    /** double-tap on empty space opens search */
     val doubleTapLock: Boolean get() = Store.bool("dt_lock", true)
     val clock: Boolean get() = Store.bool("clock", true)
     val autoAdd: Boolean get() = Store.bool("auto_add", true)
@@ -175,13 +176,10 @@ object Apps {
         }
     }
 
+    /** Opens the app's info page, where Android's own Uninstall button is (no special permission needed). */
     fun uninstall(ctx: Context, app: AppInfo) {
-        try {
-            ctx.startActivity(Intent(Intent.ACTION_DELETE, android.net.Uri.parse("package:" + app.pkg))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (_: Exception) {
-            ctx.toast("Can't uninstall this app")
-        }
+        appInfo(ctx, app)
+        ctx.toast("Tap “Uninstall” on this page")
     }
 
     fun isSystem(app: AppInfo): Boolean = (app.info.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0

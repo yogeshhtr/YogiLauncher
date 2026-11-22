@@ -1,6 +1,5 @@
 package com.yogi.launcher
 
-import android.accessibilityservice.AccessibilityService
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.role.RoleManager
@@ -13,7 +12,6 @@ import android.os.Looper
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import android.view.accessibility.AccessibilityEvent
 import androidx.core.app.NotificationManagerCompat
 
 /** Latest notification of an app (shown in the long-press menu). */
@@ -74,30 +72,6 @@ class BadgeService : NotificationListenerService() {
     }
 }
 
-/** Optional accessibility service, only used to lock the screen on double-tap (Android 9+). */
-class LockService : AccessibilityService() {
-    override fun onServiceConnected() { instance = this }
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-    override fun onInterrupt() {}
-    override fun onUnbind(intent: Intent?): Boolean {
-        instance = null
-        return super.onUnbind(intent)
-    }
-
-    companion object {
-        @Volatile var instance: LockService? = null
-
-        fun lock(): Boolean =
-            Build.VERSION.SDK_INT >= 28 && instance?.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) == true
-
-        fun enabled(ctx: Context): Boolean {
-            val s = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
-            return s.contains(ComponentName(ctx, LockService::class.java).flattenToString()) ||
-                s.contains(ctx.packageName + "/.LockService")
-        }
-    }
-}
-
 object System2 {
     /** Pulls down the notification shade (works on most phones). */
     fun expandNotifications(ctx: Context): Boolean = try {
@@ -131,13 +105,6 @@ object System2 {
                 a.startActivity(Intent(Settings.ACTION_SETTINGS))
             } catch (_: Exception) {
             }
-        }
-    }
-
-    fun openAccessibility(ctx: Context) {
-        try {
-            ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (_: Exception) {
         }
     }
 }

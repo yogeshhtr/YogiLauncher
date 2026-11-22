@@ -678,7 +678,7 @@ class LauncherActivity : AppCompatActivity() {
                 library?.reload()
                 toast("Hidden. Show it again in Settings → Hidden apps")
             }
-            if (!Apps.isSystem(app)) menuRow(box, "🗑", "Uninstall", 0xFFFF6961.toInt()) { Apps.uninstall(this, app) }
+            if (!Apps.isSystem(app)) menuRow(box, "🗑", "Uninstall…", 0xFFFF6961.toInt()) { Apps.uninstall(this, app) }
         } else if (item is FolderItem) {
             menuRow(box, "✎", "Rename folder") { renameFolder(item) }
             menuRow(box, "▦", "Edit Home Screen") { setEdit(true) }
@@ -816,21 +816,10 @@ class LauncherActivity : AppCompatActivity() {
 
     // ===================================================================== gestures
 
+    /** Double-tap on empty space: quick search (no special permissions needed). */
     private fun doubleTap() {
         if (!Prefs.doubleTapLock || editing) return
-        if (LockService.lock()) return
-        if (Build.VERSION.SDK_INT < 28) {
-            toast("Double-tap to lock needs Android 9 or newer")
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Double-tap to lock")
-            .setMessage("To lock the screen with a double-tap, turn on “Yogi Launcher double-tap lock” in Accessibility. " +
-                "It is only used to lock the screen.")
-            .setPositiveButton("Open settings") { _, _ -> System2.openAccessibility(this) }
-            .setNeutralButton("Turn off this gesture") { _, _ -> Store.setBool("dt_lock", false) }
-            .setNegativeButton("Later", null)
-            .show()
+        openLibrary(true)
     }
 
     private fun closeAll(): Boolean {
