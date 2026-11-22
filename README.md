@@ -5,6 +5,25 @@
 A clean, fast home screen for Android. It is iPhone-simple, has HyperOS-style folders, and adds advanced extras.
 It's small (only AndroidX libraries, no tracking, no ads) and works fully offline.
 
+## New in v6
+* **One app.** Badges, notification previews and double-tap lock are built in. You can uninstall *Yogi Launcher Plus*.
+* **Private space and work apps**, like the Pixel launcher:
+  * *Personal · Work · Private* tabs in the App Library, plus a 🔒 Private box in the iOS view.
+  * Unlock and lock the private space with your PIN.
+  * *Private space settings* now opens.
+  * There is an option to hide the private space until you search "private".
+* **Widgets that load**: Android widgets (Google Clock world clock, weather, calendar…) now get their real size.
+  * The new picker has previews and search.
+  * Each widget has background and settings options.
+* **New clocks**: Nothing two-line dots, OxygenOS two-tone, world clock (pick cities), flip, Pixel ring. Also a month calendar.
+* **App Library options**:
+  * Swipe up opens the Library or All apps.
+  * Letters on or off.
+  * Categories open as a vertical grid, horizontal pages or inside the list.
+* **iOS folders**: 3 × 3 pages you swipe, zooming out of the folder icon, with a 9-app or 4-app folder preview.
+* **Wallpapers**: 12 Yogi wallpapers drawn on the phone (bloom, HyperOS waves, Nothing dots…), your own photo, and a dim option.
+* **New settings**: Lawnchair-style sections with search.
+
 ## New in v5
 * 🔒 **Private Space (Android 15+) and 💼 work apps**, as on the Pixel launcher:
   * a **Private** section at the bottom of the App Library, with **lock / unlock** (Android asks for your PIN or
@@ -62,7 +81,7 @@ It's small (only AndroidX libraries, no tracking, no ads) and works fully offlin
 
 ## Notification badges
 * Red **count badges** (or dots) on icons, and summed on folders.
-  * They need notification access: Settings → *Notification badges* → allow.
+  * They need notification access: Settings → *Gestures & notifications* → Notification badges → allow (on Android 13+, first App info → ⋮ → Allow restricted settings).
 
 ## App Library and search: swipe up
 * **Suggestions** (your most-opened apps), then all apps **A–Z** with a letter scrubber on the right.

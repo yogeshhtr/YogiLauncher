@@ -14,4 +14,3 @@ dependencyResolutionManagement {
 }
 rootProject.name = "YogiLauncher"
 include ':app'
-include ':plus'

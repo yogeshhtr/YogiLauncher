@@ -182,12 +182,13 @@ class IconView(ctx: Context) : View(ctx) {
                     }
                 }
             } else {
-                val pad = s * 0.14f
-                val gap = s * 0.05f
-                val cell = (s - 2 * pad - 2 * gap) / 3f
-                for ((i, m) in minis.take(9).withIndex()) {
-                    val cx = pad + (i % 3) * (cell + gap)
-                    val cy = pad + (i / 3) * (cell + gap)
+                val n = if (Prefs.folderPreview == 1) 2 else 3
+                val pad = s * (if (n == 2) 0.16f else 0.14f)
+                val gap = s * (if (n == 2) 0.07f else 0.05f)
+                val cell = (s - 2 * pad - (n - 1) * gap) / n
+                for ((i, m) in minis.take(n * n).withIndex()) {
+                    val cx = pad + (i % n) * (cell + gap)
+                    val cy = pad + (i / n) * (cell + gap)
                     rect.set(cx, cy, cx + cell, cy + cell)
                     c.drawBitmap(m, null, rect, bmp)
                 }
@@ -572,6 +573,8 @@ class PageDots(ctx: Context) : View(ctx) {
     var count = 0
     var current = 0
     var onTap: (() -> Unit)? = null
+    /** the first page is the widgets page: hollow dot */
+    var hollowFirst = true
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val d = resources.displayMetrics.density
 
@@ -586,7 +589,7 @@ class PageDots(ctx: Context) : View(ctx) {
         for (i in 0 until count) {
             val x = start + i * gap
             p.color = if (i == current) Color.WHITE else 0x77FFFFFF
-            if (i == 0) {
+            if (i == 0 && hollowFirst) {
                 p.style = Paint.Style.STROKE
                 p.strokeWidth = 1.5f * d
                 c.drawCircle(x, height / 2f, 3f * d, p)
@@ -618,6 +621,8 @@ class BuiltinWidget(ctx: Context, val kind: String, var style: Int) : View(ctx) 
     private var battery = -1
     private var charging = false
     private var alarm = ""
+    /** World clock: time zone ids (the phone's own zone is always first). */
+    var zones: List<String> = emptyList()
 
     fun refresh() {
         try {
@@ -655,10 +660,16 @@ class BuiltinWidget(ctx: Context, val kind: String, var style: Int) : View(ctx) 
         when (kind) {
             "date" -> drawDate(c)
             "battery" -> drawBattery(c)
+            "month" -> drawMonth(c)
             else -> when (style) {
                 1 -> drawDots(c)
                 2 -> drawAnalog(c)
                 3 -> drawStacked(c)
+                4 -> drawNothing(c)
+                5 -> drawOxygen(c)
+                6 -> drawWorld(c)
+                7 -> drawFlip(c)
+                8 -> drawRing(c)
                 else -> drawBig(c)
             }
         }
@@ -781,6 +792,229 @@ class BuiltinWidget(ctx: Context, val kind: String, var style: Int) : View(ctx) 
             val i = info()
             if (i.isNotEmpty()) c.drawText(i, x, cy + 38f * d, soft)
             soft.textAlign = Paint.Align.CENTER
+        }
+    }
+
+    /** Dot-matrix digits of [t] at (x0, y0) with dot size [dot]. */
+    private fun dotText(c: Canvas, t: String, x0: Float, y0: Float, dot: Float, color: Int) {
+        p.style = Paint.Style.FILL
+        p.color = color
+        var x = x0
+        for (ch in t) {
+            val g = glyphs[ch] ?: continue
+            for (i in 0 until 35) if (g[i] == '1') c.drawCircle(x + (i % 5) * dot + dot / 2, y0 + (i / 5) * dot + dot / 2, dot * 0.4f, p)
+            x += 6 * dot
+        }
+    }
+
+    /** Nothing OS: hours over minutes in big dots, minutes in Nothing red, date on the right. */
+    private fun drawNothing(c: Canvas) {
+        val t = timeText().padStart(5, '0').split(':')
+        val dot = min(width * 0.5f / 11f, height * 0.84f / 15f)
+        val x0 = 14f * d
+        val y0 = (height - 15 * dot) / 2f
+        dotText(c, t.getOrElse(0) { "" }, x0, y0, dot, Color.WHITE)
+        dotText(c, t.getOrElse(1) { "" }, x0, y0 + 8 * dot, dot, 0xFFD71921.toInt())
+        val rx = x0 + 11 * dot + 18f * d
+        soft.textAlign = Paint.Align.LEFT
+        soft.typeface = Typeface.MONOSPACE
+        soft.letterSpacing = 0.12f
+        soft.textSize = 15f * d
+        val now = Date()
+        c.drawText(SimpleDateFormat("EEEE", Locale.getDefault()).format(now).uppercase(), rx, height * 0.40f, soft)
+        soft.textSize = 13f * d
+        c.drawText(SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(now), rx, height * 0.40f + 22f * d, soft)
+        if (battery >= 0) c.drawText((if (charging) "⚡ " else "") + "$battery%", rx, height * 0.40f + 42f * d, soft)
+        p.color = 0xFFD71921.toInt()
+        c.drawCircle(rx + 3f * d, height * 0.40f - 26f * d, 3.5f * d, p)
+        soft.letterSpacing = 0f
+        soft.textAlign = Paint.Align.CENTER
+    }
+
+    /** OxygenOS / OnePlus: heavy two-tone digits, hours white and minutes red, date underneath. */
+    private fun drawOxygen(c: Canvas) {
+        val t = timeText().split(':')
+        val hh = t.getOrElse(0) { "" }
+        val mm = t.getOrElse(1) { "" }
+        white.typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+        white.textSize = min(height * 0.5f, width * 0.24f)
+        white.textAlign = Paint.Align.LEFT
+        val wh = white.measureText(hh)
+        val gap = white.textSize * 0.08f
+        val wm = white.measureText(mm)
+        var x = (width - wh - gap - wm) / 2f
+        val y = height * 0.56f
+        c.drawText(hh, x, y, white)
+        x += wh + gap
+        val red = white.color
+        white.color = 0xFFEB0028.toInt()
+        c.drawText(mm, x, y, white)
+        white.color = red
+        white.textAlign = Paint.Align.CENTER
+        soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        soft.textSize = 15f * d
+        val line = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date()) + (if (battery >= 0) "   ·   $battery%" else "")
+        c.drawText(line, width / 2f, y + 26f * d, soft)
+    }
+
+    /** World clock: small day / night dials for the phone's zone and up to three cities. */
+    private fun drawWorld(c: Canvas) {
+        val list = (listOf(java.util.TimeZone.getDefault().id) + zones).distinct().take(4)
+        val n = list.size
+        val cw = width / n.toFloat()
+        val r = min(cw * 0.32f, height * 0.26f)
+        val cy = height * 0.40f
+        val fmt = if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a"
+        val here = java.util.TimeZone.getDefault()
+        val now = System.currentTimeMillis()
+        for ((i, z) in list.withIndex()) {
+            val tz = java.util.TimeZone.getTimeZone(z)
+            val cal = java.util.Calendar.getInstance(tz)
+            val hr = cal.get(java.util.Calendar.HOUR_OF_DAY)
+            val mn = cal.get(java.util.Calendar.MINUTE)
+            val day = hr in 6..17
+            val cx = cw * i + cw / 2
+            p.style = Paint.Style.FILL
+            p.color = if (day) 0xF2FFFFFF.toInt() else 0xFF1C1C1E.toInt()
+            c.drawCircle(cx, cy, r, p)
+            p.color = if (day) 0xFF1C1C1E.toInt() else Color.WHITE
+            for (k in 0 until 12) {
+                val a = Math.toRadians(k * 30.0)
+                c.drawCircle(cx + (sin(a) * r * 0.82).toFloat(), cy - (cos(a) * r * 0.82).toFloat(), if (k % 3 == 0) 1.6f * d else 0.9f * d, p)
+            }
+            p.strokeCap = Paint.Cap.ROUND
+            p.strokeWidth = 3f * d
+            val ha = Math.toRadians(((hr % 12) + mn / 60.0) * 30.0)
+            c.drawLine(cx, cy, cx + (sin(ha) * r * 0.48).toFloat(), cy - (cos(ha) * r * 0.48).toFloat(), p)
+            p.strokeWidth = 2f * d
+            val ma = Math.toRadians(mn * 6.0)
+            c.drawLine(cx, cy, cx + (sin(ma) * r * 0.72).toFloat(), cy - (cos(ma) * r * 0.72).toFloat(), p)
+            p.color = 0xFFFF9F0A.toInt()
+            c.drawCircle(cx, cy, 2.2f * d, p)
+            p.strokeCap = Paint.Cap.BUTT
+            val city = if (i == 0) "Here" else z.substringAfterLast('/').replace('_', ' ')
+            soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            soft.textSize = 13f * d
+            c.drawText(TextUtils.ellipsize(city, TextPaint(soft), cw - 6f * d, TextUtils.TruncateAt.END).toString(), cx, cy + r + 18f * d, soft)
+            white.typeface = Typeface.DEFAULT_BOLD
+            white.textSize = 14f * d
+            val sdf = SimpleDateFormat(fmt, Locale.getDefault())
+            sdf.timeZone = tz
+            c.drawText(sdf.format(Date(now)), cx, cy + r + 36f * d, white)
+            if (i > 0) {
+                val diff = (tz.getOffset(now) - here.getOffset(now)) / 60000
+                val sign = if (diff >= 0) "+" else "−"
+                val ad = abs(diff)
+                val txt = sign + (ad / 60) + "h" + (if (ad % 60 != 0) " " + (ad % 60) + "m" else "")
+                soft.textSize = 11f * d
+                c.drawText(txt, cx, cy + r + 51f * d, soft)
+            }
+        }
+    }
+
+    /** Flip clock: two dark cards with a split line. */
+    private fun drawFlip(c: Canvas) {
+        val t = timeText().padStart(5, '0').split(':')
+        val cardH = min(height * 0.66f, width * 0.36f)
+        val cardW = cardH * 1.05f
+        val gap = 10f * d
+        val left = (width - 2 * cardW - gap) / 2f
+        val top = height * 0.08f
+        white.typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+        white.textSize = cardH * 0.7f
+        for (k in 0..1) {
+            val l = left + k * (cardW + gap)
+            p.style = Paint.Style.FILL
+            p.color = 0xF01C1C1E.toInt()
+            c.drawRoundRect(RectF(l, top, l + cardW, top + cardH), 14f * d, 14f * d, p)
+            c.drawText(t.getOrElse(k) { "" }, l + cardW / 2, top + cardH / 2 - (white.descent() + white.ascent()) / 2, white)
+            p.color = 0xFF000000.toInt()
+            p.strokeWidth = 2f * d
+            c.drawLine(l, top + cardH / 2, l + cardW, top + cardH / 2, p)
+        }
+        soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        soft.textSize = 14f * d
+        c.drawText(SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date()), width / 2f, top + cardH + 22f * d, soft)
+    }
+
+    /** Pixel-style rings: outer ring = hours, inner ring = minutes, time in the middle. */
+    private fun drawRing(c: Canvas) {
+        val cal = java.util.Calendar.getInstance()
+        val wide = width > height * 1.5f
+        val s = min(height * 0.9f, width * 0.9f)
+        val cx = if (wide) height * 0.55f + 8f * d else width / 2f
+        val cy = height / 2f
+        p.style = Paint.Style.STROKE
+        p.strokeCap = Paint.Cap.ROUND
+        val outer = s / 2 - 8f * d
+        val inner = outer - 16f * d
+        p.strokeWidth = 10f * d
+        p.color = 0x33FFFFFF
+        c.drawCircle(cx, cy, outer, p)
+        c.drawCircle(cx, cy, inner, p)
+        p.color = 0xFF8AB4F8.toInt()
+        val hr = cal.get(java.util.Calendar.HOUR) + cal.get(java.util.Calendar.MINUTE) / 60f
+        c.drawArc(RectF(cx - outer, cy - outer, cx + outer, cy + outer), -90f, 360f * hr / 12f, false, p)
+        p.color = 0xFFF28B82.toInt()
+        c.drawArc(RectF(cx - inner, cy - inner, cx + inner, cy + inner), -90f, 360f * cal.get(java.util.Calendar.MINUTE) / 60f, false, p)
+        p.style = Paint.Style.FILL
+        p.strokeCap = Paint.Cap.BUTT
+        white.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        white.textSize = inner * 0.5f
+        c.drawText(timeText(), cx, cy - (white.descent() + white.ascent()) / 2, white)
+        if (wide) {
+            soft.textAlign = Paint.Align.LEFT
+            soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            val x = cx + outer + 22f * d
+            soft.textSize = 20f * d
+            c.drawText(SimpleDateFormat("EEEE", Locale.getDefault()).format(Date()), x, cy - 4f * d, soft)
+            soft.textSize = 15f * d
+            c.drawText(SimpleDateFormat("d MMMM", Locale.getDefault()).format(Date()), x, cy + 20f * d, soft)
+            val i = info()
+            if (i.isNotEmpty()) c.drawText(i, x, cy + 42f * d, soft)
+            soft.textAlign = Paint.Align.CENTER
+        }
+    }
+
+    /** iOS-style month calendar, today in a red circle. */
+    private fun drawMonth(c: Canvas) {
+        val cal = java.util.Calendar.getInstance()
+        val today = cal.get(java.util.Calendar.DAY_OF_MONTH)
+        val first = cal.clone() as java.util.Calendar
+        first.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        val startDow = (first.get(java.util.Calendar.DAY_OF_WEEK) - cal.firstDayOfWeek + 7) % 7
+        val days = cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+        val rows = (startDow + days + 6) / 7
+        val pad = 12f * d
+        val head = 22f * d
+        val cellW = (width - 2 * pad) / 7f
+        val cellH = (height - pad * 2 - head * 2) / rows
+        soft.textAlign = Paint.Align.LEFT
+        soft.typeface = Typeface.DEFAULT_BOLD
+        soft.textSize = 13f * d
+        soft.color = 0xFFFF453A.toInt()
+        c.drawText(SimpleDateFormat("MMMM", Locale.getDefault()).format(cal.time).uppercase(), pad + 4f * d, pad + 13f * d, soft)
+        soft.color = 0xDDFFFFFF.toInt()
+        soft.textAlign = Paint.Align.CENTER
+        soft.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        soft.textSize = 10f * d
+        val names = java.text.DateFormatSymbols.getInstance().shortWeekdays
+        for (k in 0 until 7) {
+            val dow = (cal.firstDayOfWeek - 1 + k) % 7 + 1
+            c.drawText(names[dow].take(1).uppercase(), pad + cellW * k + cellW / 2, pad + head + 10f * d, soft)
+        }
+        white.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        white.textSize = min(cellH * 0.55f, 13f * d)
+        for (day in 1..days) {
+            val idx = startDow + day - 1
+            val x = pad + cellW * (idx % 7) + cellW / 2
+            val y = pad + head * 2 + cellH * (idx / 7) + cellH / 2
+            if (day == today) {
+                p.style = Paint.Style.FILL
+                p.color = 0xFFFF453A.toInt()
+                c.drawCircle(x, y, min(cellW, cellH) * 0.42f, p)
+            }
+            c.drawText(day.toString(), x, y - (white.descent() + white.ascent()) / 2, white)
         }
     }
 

@@ -78,10 +78,8 @@ class LauncherActivity : AppCompatActivity() {
         override fun onPackagesUnavailable(packageNames: Array<out String>?, user: UserHandle?, replacing: Boolean) { reloadApps() }
     }
 
-    /** State from Yogi Launcher Plus (badges, notification previews, lock ready). */
-    private val plusReceiver = object : android.content.BroadcastReceiver() {
-        override fun onReceive(c: android.content.Context, i: Intent) { Badges.fromIntent(i) }
-    }
+    private lateinit var dim: View
+    private var profileState = ""
 
     /** Private space locked / unlocked, work apps paused / added: reload the app list. */
     private val profileReceiver = object : android.content.BroadcastReceiver() {
@@ -107,6 +105,8 @@ class LauncherActivity : AppCompatActivity() {
         Home.load()
 
         root = FrameLayout(this)
+        dim = View(this)
+        root.addView(dim, FrameLayout.LayoutParams(MATCH, MATCH))
         home = vbox()
         pager = Pager(this)
         dots = PageDots(this)
@@ -148,11 +148,10 @@ class LauncherActivity : AppCompatActivity() {
 
         root.setOnDragListener { _, e -> onDragEvent(e) }
         onBackPressedDispatcher.addCallback(this, back)
-        Badges.listener = { updateBadges() }
-        androidx.core.content.ContextCompat.registerReceiver(this, plusReceiver,
-            android.content.IntentFilter(Plus.ACTION_STATE), Plus.PERM, null,
-            androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
-        Plus.sync(this)
+        Badges.listener = {
+            updateBadges()
+            library?.reload()
+        }
         val pf = android.content.IntentFilter()
         for (act in listOf(Intent.ACTION_MANAGED_PROFILE_AVAILABLE, Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE,
             Intent.ACTION_MANAGED_PROFILE_ADDED, Intent.ACTION_MANAGED_PROFILE_REMOVED,
@@ -172,7 +171,6 @@ class LauncherActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         Badges.listener = null
-        try { unregisterReceiver(plusReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(profileReceiver) } catch (_: Exception) {}
         try {
             (getSystemService(LAUNCHER_APPS_SERVICE) as LauncherApps).unregisterCallback(laCallback)
@@ -276,7 +274,13 @@ class LauncherActivity : AppCompatActivity() {
         if (Home.cols != Prefs.cols || Home.rows != rows) Home.resize(Prefs.cols, rows)
     }
 
-    private fun reloadApps() {
+    private fun profileSig(): String {
+        val pu = Profiles.privateUser
+        val wu = Profiles.workUser
+        return (if (pu != null) Profiles.isLocked(this, pu).toString() else "-") + (if (wu != null) Profiles.isLocked(this, wu).toString() else "-")
+    }
+
+    fun reloadApps() {
         Thread {
             val before = Apps.list.map { it.key }.toSet()
             val apps = try { Apps.load(this) } catch (_: Exception) { return@Thread }
@@ -289,6 +293,7 @@ class LauncherActivity : AppCompatActivity() {
                 Home.sync(keys)
                 Home.compact(editing)
                 Home.save()
+                profileState = profileSig()
                 if (drag == null) buildHome()
                 library?.reload()
             }
@@ -380,7 +385,7 @@ class LauncherActivity : AppCompatActivity() {
                 val cell = if (v.isBig && !editing) v.bigCellAt(v.upX, v.upY) else -1
                 val direct = cell >= 0 && (cell < 8 || it.apps.size <= 9) && cell < it.apps.size
                 val app = if (direct) Apps.get(it.apps[cell]) else null
-                if (app != null) Apps.launch(this, app, v) else openFolder(it)
+                if (app != null) Apps.launch(this, app, v) else openFolder(it, v)
             }
             else -> Unit
         }
@@ -839,55 +844,112 @@ class LauncherActivity : AppCompatActivity() {
         }
     }
 
-    fun openFolder(f: FolderItem) {
+    private var folderFrom: View? = null
+
+    /**
+     * Opens a home folder. iOS style: 3 × 3 pages you swipe sideways, zooming out of the folder icon.
+     * Scrolling style: one tall grid.
+     */
+    fun openFolder(f: FolderItem, from: View? = null) {
         popup?.dismiss()
         closeFolder(rebuild = false)
         val ov = FrameLayout(this)
-        ov.setBackgroundColor(0x55000000)
+        ov.setBackgroundColor(0x40000000)
         ov.setOnClickListener { closeFolder() }
         val col = vbox()
         col.gravity = Gravity.CENTER_HORIZONTAL
-        val title = label(f.name, 26f, Color.WHITE, true)
+        val title = label(f.name, 28f, Color.WHITE, true)
         title.gravity = Gravity.CENTER
         title.setShadowLayer(6f, 0f, 1f, 0x88000000.toInt())
         title.setOnClickListener { renameFolder(f) }
-        col.addView(title.lin(WRAP, WRAP, b = dp(14)))
-        val panel = vbox()
-        panel.background = rounded(0x40FFFFFF, dpf(34f))
-        panel.setPadding(dp(14), dp(16), dp(14), dp(10))
-        panel.isClickable = true
-        val perRow = if (f.apps.size > 12) 4 else 3
-        val cellH = iconPx + dp(40)
-        var row: LinearLayout? = null
-        for ((i, k) in f.apps.withIndex()) {
-            if (i % perRow == 0) {
-                row = hbox()
-                panel.addView(row, LinearLayout.LayoutParams(MATCH, cellH))
-            }
-            val app = Apps.get(k) ?: continue
-            val v = makeIcon(AppItem(k), Slot(Slot.FOLDER, 0, i, f.id), true) ?: continue
-            v.label = app.label
-            row?.addView(v, LinearLayout.LayoutParams(0, MATCH, 1f))
-        }
-        val last = row
-        if (last != null) while (last.childCount < perRow) last.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-        val sv = ScrollView(this)
-        sv.isVerticalScrollBarEnabled = false
-        sv.addView(panel)
-        val maxH = (resources.displayMetrics.heightPixels * 0.62f).toInt()
-        val rowsCount = (f.apps.size + perRow - 1) / perRow
-        val ph = min(maxH, rowsCount * cellH + dp(28))
-        col.addView(sv, LinearLayout.LayoutParams(MATCH, ph))
-        col.addView(label("Tap the name to rename · hold an app to move it out", 12f, 0xCCFFFFFF.toInt()).apply { gravity = Gravity.CENTER }.lin(t = dp(12)))
+        col.addView(title.lin(WRAP, WRAP, b = dp(16)))
         val sw = resources.displayMetrics.widthPixels
-        ov.addView(col, FrameLayout.LayoutParams((sw * 0.86f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        val cellH = iconPx + dp(40)
+        if (Prefs.folderStyle == 0) {
+            val per = 9
+            val pagesN = ((f.apps.size + per - 1) / per).coerceAtLeast(1)
+            val fp = Pager(this)
+            fp.firstHome = 0
+            val fd = PageDots(this)
+            fd.hollowFirst = false
+            for (pg in 0 until pagesN) {
+                val g = GridPage(this, 3, 3)
+                for (i in 0 until per) {
+                    val idx = pg * per + i
+                    val k = f.apps.getOrNull(idx) ?: break
+                    val app = Apps.get(k) ?: continue
+                    val v = makeIcon(AppItem(k), Slot(Slot.FOLDER, 0, idx, f.id), true) ?: continue
+                    v.label = app.label
+                    g.addCell(v, i)
+                }
+                fp.addView(g, FrameLayout.LayoutParams(MATCH, MATCH))
+            }
+            fp.onPage = {
+                fd.current = it
+                fd.invalidate()
+            }
+            fd.count = pagesN
+            val panel = vbox()
+            panel.background = rounded(0x47FFFFFF, dpf(38f))
+            panel.setPadding(dp(12), dp(18), dp(12), dp(8))
+            panel.isClickable = true
+            panel.addView(fp, LinearLayout.LayoutParams(MATCH, cellH * 3))
+            panel.addView(fd, LinearLayout.LayoutParams(MATCH, if (pagesN > 1) dp(20) else dp(6)))
+            col.addView(panel, LinearLayout.LayoutParams((sw * 0.8f).toInt(), WRAP))
+            fp.post { fp.setPage(0, false) }
+        } else {
+            val panel = vbox()
+            panel.background = rounded(0x40FFFFFF, dpf(34f))
+            panel.setPadding(dp(14), dp(16), dp(14), dp(10))
+            panel.isClickable = true
+            val perRow = if (f.apps.size > 12) 4 else 3
+            var row: LinearLayout? = null
+            for ((i, k) in f.apps.withIndex()) {
+                if (i % perRow == 0) {
+                    row = hbox()
+                    panel.addView(row, LinearLayout.LayoutParams(MATCH, cellH))
+                }
+                val app = Apps.get(k) ?: continue
+                val v = makeIcon(AppItem(k), Slot(Slot.FOLDER, 0, i, f.id), true) ?: continue
+                v.label = app.label
+                row?.addView(v, LinearLayout.LayoutParams(0, MATCH, 1f))
+            }
+            val last = row
+            if (last != null) while (last.childCount < perRow) last.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+            val sv = ScrollView(this)
+            sv.isVerticalScrollBarEnabled = false
+            sv.addView(panel)
+            val maxH = (resources.displayMetrics.heightPixels * 0.62f).toInt()
+            val rowsCount = (f.apps.size + perRow - 1) / perRow
+            val ph = min(maxH, rowsCount * cellH + dp(28))
+            col.addView(sv, LinearLayout.LayoutParams((sw * 0.86f).toInt(), ph))
+        }
+        col.addView(label("Tap the name to rename · hold an app to move it out", 12f, 0xCCFFFFFF.toInt()).apply { gravity = Gravity.CENTER }.lin(t = dp(12)))
+        ov.addView(col, FrameLayout.LayoutParams(WRAP, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         root.addView(ov, FrameLayout.LayoutParams(MATCH, MATCH))
         blur(true)
-        col.scaleX = 0.85f
-        col.scaleY = 0.85f
-        col.alpha = 0f
-        col.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start()
         folderView = ov
+        folderFrom = from
+        // zoom out of the folder icon (iOS / HyperOS)
+        col.alpha = 0f
+        col.post {
+            val src = from?.let { rectIn(it) }
+            val dst = rectIn(col)
+            if (src != null && dst.width() > 0) {
+                col.pivotX = 0f
+                col.pivotY = 0f
+                val sc = (src.width().toFloat() / dst.width()).coerceIn(0.1f, 1f)
+                col.scaleX = sc
+                col.scaleY = sc
+                col.translationX = (src.left - dst.left).toFloat()
+                col.translationY = (src.top - dst.top).toFloat()
+            } else {
+                col.scaleX = 0.85f
+                col.scaleY = 0.85f
+            }
+            col.animate().scaleX(1f).scaleY(1f).translationX(0f).translationY(0f).alpha(1f)
+                .setDuration(300).setInterpolator(android.view.animation.DecelerateInterpolator(2.2f)).start()
+        }
     }
 
     fun closeFolder(rebuild: Boolean = true) {
@@ -917,26 +979,23 @@ class LauncherActivity : AppCompatActivity() {
 
     // ===================================================================== gestures
 
-    /** Double-tap on empty space: lock (with Yogi Launcher Plus), otherwise quick search. */
+    /** Double-tap on empty space: lock the screen (accessibility switch), otherwise explain how. */
     private fun doubleTap() {
         if (!Prefs.doubleTapLock || editing) return
-        when {
-            Badges.lockReady -> Plus.lock(this)
-            Plus.installed(this) -> AlertDialog.Builder(this)
-                .setTitle("Double-tap to lock")
-                .setMessage("Turn on “Yogi Launcher double-tap lock” in Yogi Launcher Plus to lock the screen with a double-tap.")
-                .setPositiveButton("Open Plus") { _, _ -> Plus.open(this) }
-                .setNegativeButton("Search instead") { _, _ -> openLibrary(true) }
-                .show()
-            else -> openLibrary(true)
+        if (LockService.lock()) return
+        if (Store.bool("dt_asked")) {
+            openLibrary(true)
+            return
         }
+        Store.setBool("dt_asked", true)
+        Access.ask(this, true)
     }
 
     private fun closeAll(): Boolean {
         when {
             popup?.isShowing == true -> popup?.dismiss()
             folderView != null -> closeFolder()
-            library?.isOpen == true -> library?.close()
+            library?.isOpen == true -> library?.back()
             editing -> setEdit(false)
             ready && pager.current != pager.firstHome -> pager.setPage(pager.firstHome, true)
             else -> return false
@@ -955,7 +1014,7 @@ class LauncherActivity : AppCompatActivity() {
         Store.setBool("welcomed", true)
         val body = vbox()
         body.addView(label("A calm, fast home screen. Swipe up for all apps, swipe down for notifications, " +
-            "hold an icon to move it, drop it on another icon to make a folder.", 14f, C.SUB))
+            "hold an icon to move it, drop it on another icon to make a folder. Private space and work apps have their own tabs in the App Library.", 14f, C.SUB))
         if (!System2.isDefaultLauncher(this)) {
             body.addView(pill("🏠  Make Yogi Launcher my home screen") { System2.askDefault(this) }.lin(t = dp(14)))
         }
@@ -980,7 +1039,13 @@ class LauncherActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         back.isEnabled = true
-        Plus.sync(this)
+        dim.setBackgroundColor(Color.argb(Prefs.wallDim * 255 / 100, 0, 0, 0))
+        // private space / work apps locked or unlocked while we were away (PIN screen, quick settings)
+        val ps = profileSig()
+        if (ready && ps != profileState) {
+            profileState = ps
+            reloadApps()
+        }
         if (ready && builtVersion != Prefs.version) {
             // settings changed: new sizes, new icon shapes
             builtVersion = Prefs.version
@@ -1025,15 +1090,17 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun makeWidget(w: WidgetItem, slot: Slot): View? {
         val inner: View = if (w.kind == "app") {
-            WidgetHost.create(this, w.wid) ?: return null
+            WidgetHost.create(this, w.wid) ?: WidgetHost.broken(this) { buildHome() }
         } else {
             val b = BuiltinWidget(this, w.kind, w.style)
+            b.zones = cities(w)
             b.refresh()
             b.setOnClickListener { openBuiltin(w.kind) }
             builtinViews.add(b)
             b
         }
-        val f = WidgetHost.frame(this, inner, 26f, glass = w.kind == "app")
+        val glass = w.kind == "app" && when (w.style) { 1 -> false; 2 -> true; else -> Prefs.widgetGlass }
+        val f = WidgetHost.frame(this, inner, 26f, glass = glass)
         f.setPadding(dp(4), dp(4), dp(4), dp(4))
         f.onLong = { widgetMenu(f, w, slot) }
         val d = drag
@@ -1058,18 +1125,39 @@ class LauncherActivity : AppCompatActivity() {
         box.background = rounded(0xF2242426.toInt(), dpf(18f))
         box.setPadding(0, dp(4), 0, dp(4))
         if (w.kind == "clock") {
-            val names = listOf("Big digits", "Dot-matrix", "Analog", "Stacked")
-            for ((i, n) in names.withIndex()) {
-                menuRow(box, if (w.style == i) "●" else "○", "Style: $n") {
-                    w.style = i
-                    Home.save()
-                    buildHome()
+            menuRow(box, "🕐", "Clock style: " + CLOCKS[w.style.coerceIn(0, CLOCKS.size - 1)]) {
+                AlertDialog.Builder(this)
+                    .setTitle("Clock style")
+                    .setSingleChoiceItems(CLOCKS.toTypedArray(), w.style) { d, i ->
+                        w.style = i
+                        Home.save()
+                        buildHome()
+                        d.dismiss()
+                    }
+                    .show()
+            }
+            if (w.style == 6) menuRow(box, "🌍", "Choose cities") { pickCities(w) }
+            divider(box)
+        }
+        if (w.kind == "app") {
+            menuRow(box, "◐", "Background: " + listOf("default", "none", "glass")[w.style.coerceIn(0, 2)]) {
+                w.style = (w.style + 1) % 3
+                Home.save()
+                buildHome()
+            }
+            val info = try { WidgetHost.manager(this).getAppWidgetInfo(w.wid) } catch (_: Exception) { null }
+            if (info?.configure != null) menuRow(box, "⚙", "Widget settings") {
+                try {
+                    WidgetHost.host(this).startAppWidgetConfigureActivityForResult(this, w.wid, 0, 4199, null)
+                } catch (_: Exception) {
+                    toast("This widget has no settings")
                 }
             }
             divider(box)
         }
         val sizes = when (w.kind) {
             "date", "battery" -> listOf(2 to 2, 1 to 1, 2 to 1)
+            "month" -> listOf(Home.cols to 3, 2 to 2, Home.cols to 4, (Home.cols - 1).coerceAtLeast(2) to 3)
             "clock" -> listOf(Home.cols to 2, Home.cols to 3, 2 to 2, Home.cols to 1)
             else -> listOf(Home.cols to 2, Home.cols to 3, 2 to 2, Home.cols to 1, Home.cols to 4)
         }
@@ -1112,8 +1200,70 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun homePage(): Int = (pager.current - pager.firstHome).coerceAtLeast(0)
 
+    private val CLOCKS = listOf("Big digits", "Dot-matrix (Nothing)", "Analog", "Stacked", "Nothing two-line",
+        "OxygenOS two-tone", "World clock", "Flip", "Ring (Pixel)")
+
+    private fun cities(w: WidgetItem): List<String> =
+        Store.str("wc_" + w.id, "Europe/London,America/New_York,Asia/Tokyo").split(',').filter { it.isNotBlank() }
+
+    /** World clock: pick up to three cities. */
+    private fun pickCities(w: WidgetItem) {
+        val ids = java.util.TimeZone.getAvailableIDs().filter { it.contains('/') && !it.startsWith("Etc/") && !it.startsWith("SystemV") }.sorted()
+        val names = ids.map { it.substringAfterLast('/').replace('_', ' ') + "  ·  " + it.substringBefore('/') }
+        val chosen = cities(w).toMutableList()
+        val box = vbox()
+        val search = input("🔍  Search a city")
+        box.addView(search)
+        val listBox = vbox()
+        val sv = ScrollView(this)
+        sv.addView(listBox)
+        box.addView(sv, LinearLayout.LayoutParams(MATCH, (resources.displayMetrics.heightPixels * 0.5f).toInt()))
+        val status = label("", 13f, C.SUB)
+        box.addView(status.lin(t = dp(6)))
+        fun fill(q: String) {
+            listBox.removeAllViews()
+            status.text = "Chosen: " + chosen.joinToString(", ") { it.substringAfterLast('/').replace('_', ' ') } + "  (max 3)"
+            val ql = q.lowercase()
+            var n = 0
+            for ((i, id) in ids.withIndex()) {
+                if (ql.isNotEmpty() && !names[i].lowercase().contains(ql)) continue
+                if (++n > 120) break
+                val on = id in chosen
+                val r = label((if (on) "✅  " else "○  ") + names[i], 15f, C.TEXT)
+                r.setPadding(dp(6), dp(10), dp(6), dp(10))
+                r.setOnClickListener {
+                    if (on) chosen.remove(id) else {
+                        if (chosen.size >= 3) chosen.removeAt(0)
+                        chosen.add(id)
+                    }
+                    fill(search.text.toString())
+                }
+                listBox.addView(r)
+            }
+        }
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+            override fun onTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+            override fun afterTextChanged(e: android.text.Editable?) { fill(e?.toString() ?: "") }
+        })
+        fill("")
+        AlertDialog.Builder(this)
+            .setTitle("World clock cities")
+            .setView(box.apply { setPadding(dp(18), dp(6), dp(18), 0) })
+            .setPositiveButton("Save") { _, _ ->
+                Store.setStr("wc_" + w.id, chosen.joinToString(","))
+                buildHome()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     fun addBuiltinWidget(kind: String, style: Int) {
-        val (w, hgt) = if (kind == "clock") Home.cols to 2 else 2 to 2
+        val (w, hgt) = when (kind) {
+            "clock" -> Home.cols to 2
+            "month" -> Home.cols to 3
+            else -> 2 to 2
+        }
         val item = WidgetItem(kind, -1, w, hgt, style)
         Home.place(item, homePage())
         Home.save()

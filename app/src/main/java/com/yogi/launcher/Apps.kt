@@ -100,6 +100,26 @@ object Prefs {
     /** package of the chosen icon pack ("" = none) */
     val iconPack: String get() = Store.str("icon_pack", "")
 
+    // v6: App Library, private space, folders, widgets
+    /** swipe up opens: 0 App Library (category boxes) · 1 All apps list */
+    val drawerOpen: Int get() = Store.int("drawer_open", 0)
+    /** letter headers + A–Z bar in the All apps list */
+    val drawerLetters: Boolean get() = Store.bool("drawer_letters", Store.int("drawer_group", 3) != 0)
+    /** tapping a category box: 0 vertical grid · 1 horizontal pages · 2 inside the list */
+    val libFolder: Int get() = Store.int("lib_folder", 0)
+    /** Private tab in the App Library. Off: hidden until you search "private" (like Pixel). */
+    val showPrivate: Boolean get() = Store.bool("show_private", true)
+    /** unlocked private apps also appear in search results */
+    val privateInSearch: Boolean get() = Store.bool("private_search", true)
+    /** home folders open as: 0 iOS pages (3 × 3, swipe) · 1 one scrolling grid */
+    val folderStyle: Int get() = Store.int("folder_style", 0)
+    /** folder icon on the home screen: 0 3 × 3 minis (iOS) · 1 2 × 2 bigger minis */
+    val folderPreview: Int get() = Store.int("folder_preview", 0)
+    /** Android widgets get a glass background */
+    val widgetGlass: Boolean get() = Store.bool("widget_glass", true)
+    /** wallpaper dimming over the home screen, 0–60 % */
+    val wallDim: Int get() = Store.int("wall_dim", 0)
+
     fun typeface(): android.graphics.Typeface = when (font) {
         1 -> android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)
         2 -> android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
@@ -244,7 +264,7 @@ object Apps {
                 has("daraz", "amazon", "shop", "store", "mart", "food", "foodmandu", "pathao", "indrive", "uber") -> "Shopping"
                 has("maps", "travel", "booking", "airbnb", "weather", "flight") -> "Travel"
                 has("gmail", "mail", "docs", "sheets", "slides", "drive", "office", "word", "excel", "notion", "calendar",
-                    "keep", "zoom", "teams", "meet", "slack", "classroom", "pdf") -> "Work"
+                    "keep", "zoom", "teams", "meet", "slack", "classroom", "pdf") -> "Productivity"
                 has("settings", "clock", "calculator", "files", "contacts", "dialer", "phone", "recorder", "compass",
                     "flashlight", "launcher", "vending", "chrome", "browser", "security", "cleaner", "backup", "yogi") -> "Tools"
                 else -> when (app.category) {
@@ -254,14 +274,14 @@ object Apps {
                     ApplicationInfo.CATEGORY_IMAGE -> "Photos"
                     ApplicationInfo.CATEGORY_NEWS -> "Reading"
                     ApplicationInfo.CATEGORY_MAPS -> "Travel"
-                    ApplicationInfo.CATEGORY_PRODUCTIVITY -> "Work"
+                    ApplicationInfo.CATEGORY_PRODUCTIVITY -> "Productivity"
                     else -> if (isSystem(app)) "Tools" else "Other"
                 }
             }
         }
     }
 
-    val CATEGORY_ORDER = listOf("Social", "Media", "Photos", "Games", "Work", "Finance", "Shopping", "Travel", "Reading", "Tools", "Other")
+    val CATEGORY_ORDER = listOf("Social", "Media", "Photos", "Games", "Productivity", "Finance", "Shopping", "Travel", "Reading", "Tools", "Other")
 
     private val colourCache = HashMap<String, Int>()
 
@@ -665,21 +685,50 @@ object Profiles {
         }
     }
 
-    /** Android's private space settings (public Android 15 API, looked up at run time). */
+    /**
+     * Android's private space settings. The system gives us an IntentSender; like the Pixel launcher we must allow
+     * it to start an activity "from the background", otherwise Android 14+ silently blocks it.
+     */
     fun openPrivateSettings(a: android.app.Activity) {
+        if (Build.VERSION.SDK_INT >= 35) {
+            try {
+                val l = la(a)
+                val sender = l.javaClass.getMethod("getPrivateSpaceSettingsIntent").invoke(l) as? android.content.IntentSender
+                if (sender != null) {
+                    val opts = android.app.ActivityOptions.makeBasic()
+                    try {
+                        opts.javaClass.getMethod("setPendingIntentBackgroundActivityStartMode", Int::class.javaPrimitiveType)
+                            .invoke(opts, 1) // MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                    } catch (_: Throwable) {
+                    }
+                    a.startIntentSender(sender, null, 0, 0, 0, opts.toBundle())
+                    return
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        // fallbacks: Pixel's own page, then Security & privacy
+        for (act in listOf("android.settings.PRIVATE_SPACE_SETTINGS", "com.android.settings.action.OPEN_PRIVATE_SPACE_SETTINGS",
+            "android.settings.SECURITY_ADVANCED_SETTINGS", android.provider.Settings.ACTION_SECURITY_SETTINGS)) {
+            try {
+                a.startActivity(Intent(act).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** Opens the app store inside the private space / work profile, to install apps there. */
+    fun installApps(a: android.app.Activity, u: UserHandle) {
         try {
-            val l = la(a)
-            val sender = l.javaClass.getMethod("getPrivateSpaceSettingsIntent").invoke(l) as? android.content.IntentSender
-            if (sender != null) {
-                a.startIntentSender(sender, null, 0, 0, 0)
+            val store = Apps.list.firstOrNull { it.user == u && (it.pkg == "com.android.vending" || it.pkg.contains("store")) }
+            if (store != null) {
+                la(a).startMainActivity(store.component, u, null, null)
                 return
             }
-        } catch (_: Throwable) {
-        }
-        try {
-            a.startActivity(Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS))
         } catch (_: Exception) {
         }
+        a.toast("Open Play Store from inside this space to install apps")
     }
 }
 
@@ -707,6 +756,9 @@ object SettingsSearch {
         Triple("🖼", "Wallpaper", Intent.ACTION_SET_WALLPAPER),
         Triple("🛠", "Developer options", android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
         Triple("ℹ️", "About phone", android.provider.Settings.ACTION_DEVICE_INFO_SETTINGS),
+        Triple("🔒", "Private space", "yogi:private"),
+        Triple("💼", "Work apps · work profile", "yogi:work"),
+        Triple("🏠", "Yogi Launcher settings", "yogi:settings"),
         Triple("⚙️", "All settings", android.provider.Settings.ACTION_SETTINGS)
     )
 
