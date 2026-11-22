@@ -37,7 +37,11 @@ class Library(private val a: LauncherActivity) {
     private val list = RecyclerView(a)
     private val letters = LetterBar(a)
     private var rows: List<Row> = emptyList()
-    private val cols = Prefs.cols
+    private val cols = Prefs.drawerCols
+    /** Nothing-style category filter (null = all apps). */
+    private var category: String? = null
+    private val chips = a.hbox()
+    private val chipScroll = a.hscroll(chips)
     private val adapter = Adapter()
 
     init {
@@ -54,7 +58,9 @@ class Library(private val a: LauncherActivity) {
                 true
             } else false
         }
-        col.addView(search.lin(l = a.dp(16), t = a.dp(4), r = a.dp(16), b = a.dp(8)))
+        col.addView(search.lin(l = a.dp(16), t = a.dp(4), r = a.dp(16), b = a.dp(4)))
+        chips.setPadding(a.dp(14), 0, a.dp(14), 0)
+        if (Prefs.drawerChips) col.addView(chipScroll.lin(b = a.dp(2)))
         val body = FrameLayout(a)
         val glm = GridLayoutManager(a, cols)
         glm.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
@@ -128,23 +134,47 @@ class Library(private val a: LauncherActivity) {
         val hidden = Prefs.hidden
         val apps = Apps.list.filter { it.key !in hidden }
         val out = ArrayList<Row>()
+        drawChips(apps)
         if (q.isEmpty()) {
-            val top = Apps.top(cols * 2)
-            if (top.isNotEmpty()) {
-                out.add(Row(0, "★"))
-                top.forEach { out.add(Row(1, app = it)) }
-            }
-            var last = ""
-            for (app in apps) {
-                val c = app.label.firstOrNull()?.uppercaseChar() ?: '#'
-                val l = if (c.isLetter()) c.toString() else "#"
-                if (l != last) {
-                    out.add(Row(0, l))
-                    last = l
+            val cat = category
+            val shown = if (cat == null) apps else apps.filter { Apps.drawerCategory(it) == cat }
+            if (cat == null) {
+                val top = Apps.top(cols * 2)
+                if (top.isNotEmpty()) {
+                    out.add(Row(0, "★"))
+                    top.forEach { out.add(Row(1, app = it)) }
                 }
-                out.add(Row(1, app = app))
             }
-            letters.visibility = View.VISIBLE
+            when (Prefs.drawerGroup) {
+                0 -> {
+                    if (cat == null && out.isNotEmpty()) out.add(Row(0, "All apps"))
+                    shown.forEach { out.add(Row(1, app = it)) }
+                }
+                2 -> {
+                    // by icon colour, like a rainbow
+                    val groups = shown.groupBy { app ->
+                        val b = Icons.cached(app) ?: Icons.get(a, app)
+                        Apps.colourGroup(b, app.key)
+                    }
+                    for (g in groups.keys.sorted()) {
+                        out.add(Row(0, "● " + Apps.COLOUR_NAMES[g]))
+                        groups[g]?.forEach { out.add(Row(1, app = it)) }
+                    }
+                }
+                else -> {
+                    var last = ""
+                    for (app in shown) {
+                        val c = app.label.firstOrNull()?.uppercaseChar() ?: '#'
+                        val l = if (c.isLetter()) c.toString() else "#"
+                        if (l != last) {
+                            out.add(Row(0, l))
+                            last = l
+                        }
+                        out.add(Row(1, app = app))
+                    }
+                }
+            }
+            letters.visibility = if (Prefs.drawerGroup == 1 && cat == null) View.VISIBLE else View.GONE
         } else {
             letters.visibility = View.GONE
             Calc.eval(q)?.let { v ->
@@ -169,6 +199,21 @@ class Library(private val a: LauncherActivity) {
         }
         rows = out
         adapter.notifyDataSetChanged()
+    }
+
+    private fun drawChips(apps: List<AppInfo>) {
+        if (!Prefs.drawerChips) return
+        chips.removeAllViews()
+        val present = apps.map { Apps.drawerCategory(it) }.toSet()
+        val cats = listOf<String?>(null) + Apps.CATEGORY_ORDER.filter { it in present }
+        for (c in cats) {
+            val count = if (c == null) apps.size else apps.count { Apps.drawerCategory(it) == c }
+            chips.addView(a.chip((c ?: "All") + "  $count", c == category) {
+                category = c
+                rebuild()
+                list.scrollToPosition(0)
+            })
+        }
     }
 
     /** 4 = name starts with it · 3 = a word starts with it · 2 = initials · 1 = contains. */

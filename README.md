@@ -5,6 +5,21 @@
 A clean, fast home screen for Android. It is iPhone-simple, has HyperOS-style folders, and adds advanced extras.
 It's small (only AndroidX libraries, no tracking, no ads) and works fully offline.
 
+## New in v4
+* **Widgets on home pages**: real Android widgets, or built-in ones. Built-ins are 4 **clock styles** (big digits,
+  **Nothing-style dot-matrix**, analog, stacked), **Date** and **Battery**. Hold a widget to change its style,
+  resize it (4×1, 4×2, 4×3, 2×2…), move it or remove it.
+* **Live icons**: the Clock app's icon shows the real time and the Calendar icon shows today's date, as on iPhone.
+* **Large folders (HyperOS style)**: hold a folder → *Make large (2×2)*. Its first 8 apps open directly from the home
+  screen; the last place opens the whole folder.
+* **Icon packs**: works with thousands of free packs in the Nova/ADW format, from the Play Store or GitHub.
+* **App Library categories (Nothing OS style)**: chips for All · Social · Media · Photos · Games · Work · Finance ·
+  Shopping · Travel · Tools. Group apps by **none**, **letter** or **colour** (a rainbow of icons), with 4 or 5 columns.
+* **More control**:
+  * row spacing (compact / normal / roomy), side margins, icon size up to *Huge*
+  * label size, **font** (Default, Light, Medium, Condensed, Serif, Mono), and white or black labels
+  * default clock style, new folder size
+
 ## Home screen
 * **Your wallpaper** shows behind everything, with a frosted **dock** for 4 apps (labels hidden, as on iPhone).
 * **Beautiful, uniform icons**: every app icon is redrawn in one shape.

@@ -12,6 +12,8 @@ import androidx.appcompat.app.AppCompatActivity
 
 /** Everything you can change. Each change rebuilds the home screen when you go back. */
 class SettingsActivity : AppCompatActivity() {
+    private var scrollY = 0
+    private var scroller: android.widget.ScrollView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,11 +27,13 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun changed() {
         Prefs.bump()
+        scrollY = scroller?.scrollY ?: 0
         build()
     }
 
     private fun build() {
         val (sv, col) = page()
+        scroller = sv
         col.addView(header("Launcher", "Make it yours"))
 
         // ---------- status
@@ -45,40 +49,93 @@ class SettingsActivity : AppCompatActivity() {
         }, badges) { Badges.openSettings(this) })
         col.addView(st)
 
-        // ---------- look
+        // ---------- icons
         col.addView(section("ICONS"))
         val look = card()
         look.addView(shapePreview())
         look.addView(choice("Shape", listOf("Squircle", "Circle", "Rounded", "Pebble"), Prefs.shape) { Store.setInt("shape", it); changed() })
-        look.addView(choice("Size", listOf("Small", "Normal", "Large"), when {
+        look.addView(choice("Size", listOf("Small", "Normal", "Large", "Huge"), when {
             Prefs.iconScale < 0.95f -> 0
+            Prefs.iconScale > 1.15f -> 3
             Prefs.iconScale > 1.05f -> 2
             else -> 1
-        }) { Store.setInt("icon_scale", listOf(88, 100, 112)[it]); changed() })
+        }) { Store.setInt("icon_scale", listOf(88, 100, 112, 124)[it]); changed() })
         look.addView(choice("Style", listOf("Original colours", "Themed (tinted)"), if (Prefs.themed) 1 else 0) {
             Store.setBool("themed", it == 1)
             changed()
         })
-        look.addView(choice("Labels", listOf("Show", "Hide"), if (Prefs.labels) 0 else 1) { Store.setBool("labels", it == 0); changed() })
+        look.addView(choice("Live clock & calendar icons", listOf("On", "Off"), if (Prefs.liveIcons) 0 else 1) {
+            Store.setBool("live_icons", it == 0)
+            changed()
+        })
         look.addView(choice("Badges", listOf("Number", "Dot", "Off"), Prefs.badges) { Store.setInt("badges", it); changed() })
+        look.addView(iconPackRow())
         col.addView(look)
 
-        col.addView(section("HOME SCREEN"))
+        // ---------- text
+        col.addView(section("TEXT"))
+        val tx = card()
+        tx.addView(choice("Labels", listOf("Show", "Hide"), if (Prefs.labels) 0 else 1) { Store.setBool("labels", it == 0); changed() })
+        val sizes = listOf(11, 12, 13, 14)
+        tx.addView(choice("Label size", listOf("Small", "Normal", "Large", "Larger"), sizes.indexOf(Prefs.labelSize).let { if (it < 0) 1 else it }) {
+            Store.setInt("label_size", sizes[it])
+            changed()
+        })
+        tx.addView(fontChoice())
+        tx.addView(choice("Label colour", listOf("White", "Black (light wallpaper)"), if (Prefs.labelDark) 1 else 0) {
+            Store.setBool("label_dark", it == 1)
+            changed()
+        })
+        col.addView(tx)
+
+        // ---------- layout
+        col.addView(section("LAYOUT & SPACING"))
         val hs = card()
         hs.addView(choice("Columns", listOf("4", "5"), if (Prefs.cols == 5) 1 else 0) { Store.setInt("cols", if (it == 1) 5 else 4); changed() })
-        hs.addView(choice("Clock on page 1", listOf("On", "Off"), if (Prefs.clock) 0 else 1) { Store.setBool("clock", it == 0); changed() })
+        hs.addView(choice("Space between rows", listOf("Compact", "Normal", "Roomy"), Prefs.spacing) { Store.setInt("spacing", it); changed() })
+        hs.addView(choice("Side margins", listOf("None", "Normal", "Wide"), Prefs.margins) { Store.setInt("margins", it); changed() })
         hs.addView(choice("Dock glass", listOf("Clear", "Light", "Frosted", "Solid"), when (Prefs.dockAlpha) {
             0 -> 0
             15 -> 1
             50 -> 3
             else -> 2
         }) { Store.setInt("dock_alpha", listOf(0, 15, 30, 50)[it]); changed() })
+        hs.addView(choice("New folders", listOf("Small 1 × 1", "Large 2 × 2 (HyperOS)"), if (Prefs.bigFolders) 1 else 0) {
+            Store.setBool("big_folders", it == 1)
+            changed()
+        })
         hs.addView(choice("New apps", listOf("Add to Home", "Library only"), if (Prefs.autoAdd) 0 else 1) {
             Store.setBool("auto_add", it == 0)
             changed()
         })
+        hs.addView(label("Hold a folder → Make large (2 × 2) · Edit mode → ＋ Widget for clocks and Android widgets", 12f, C.SUB).lin(t = dp(8)))
         col.addView(hs)
 
+        // ---------- clock
+        col.addView(section("CLOCK"))
+        val ck = card()
+        ck.addView(choice("Style for new clock widgets", listOf("Big", "Dot-matrix", "Analog", "Stacked"), Prefs.clockStyle) {
+            Store.setInt("clock_style", it)
+            changed()
+        })
+        ck.addView(label("To change a clock already on your home screen: hold it → Style.", 12f, C.SUB).lin(t = dp(6)))
+        col.addView(ck)
+
+        // ---------- drawer
+        col.addView(section("APP LIBRARY"))
+        val dr = card()
+        dr.addView(choice("Group apps", listOf("None", "By letter", "By colour"), Prefs.drawerGroup) { Store.setInt("drawer_group", it); changed() })
+        dr.addView(choice("Category chips (Nothing style)", listOf("Show", "Hide"), if (Prefs.drawerChips) 0 else 1) {
+            Store.setBool("drawer_chips", it == 0)
+            changed()
+        })
+        dr.addView(choice("Columns", listOf("4", "5"), if (Prefs.drawerCols == 5) 1 else 0) {
+            Store.setInt("drawer_cols", if (it == 1) 5 else 4)
+            changed()
+        })
+        col.addView(dr)
+
+        // ---------- gestures
         col.addView(section("GESTURES"))
         val gs = card()
         gs.addView(choice("Swipe down", listOf("Notifications", "Search"), Prefs.swipeDown) { Store.setInt("swipe_down", it); changed() })
@@ -133,6 +190,7 @@ class SettingsActivity : AppCompatActivity() {
                 .setTitle("Reset the home screen?")
                 .setMessage("Icons and folders are arranged fresh, like the first start. Your apps are not touched.")
                 .setPositiveButton("Reset") { _, _ ->
+                    for (w in Home.widgets()) if (w.kind == "app") WidgetHost.delete(this, w.wid)
                     Store.setBool("reset_layout", true)
                     changed()
                     toast("Done. Go back to the home screen.")
@@ -151,6 +209,60 @@ class SettingsActivity : AppCompatActivity() {
         val ver = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "" }
         col.addView(label("Yogi Launcher $ver · made with care", 12f, C.SUB).apply { gravity = Gravity.CENTER }.lin(t = dp(16)))
         setContentView(sv)
+        val y = scrollY
+        sv.post { sv.scrollTo(0, y) }
+    }
+
+    private fun iconPackRow(): View {
+        val packs = IconPacks.installed(this)
+        val cur = Prefs.iconPack
+        val name = if (cur.isEmpty()) "None" else packs.firstOrNull { it.first == cur }?.second ?: cur
+        return link("🎨", "Icon pack: $name") {
+            val names = listOf("None (Yogi shapes)") + packs.map { it.second } + listOf("🔎 Get icon packs…")
+            AlertDialog.Builder(this)
+                .setTitle("Icon pack")
+                .setItems(names.toTypedArray()) { _, i ->
+                    when {
+                        i == 0 -> {
+                            Store.setStr("icon_pack", "")
+                            changed()
+                        }
+                        i <= packs.size -> {
+                            Store.setStr("icon_pack", packs[i - 1].first)
+                            changed()
+                            toast("Icons from ${packs[i - 1].second}")
+                        }
+                        else -> try {
+                            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://search?q=icon%20pack&c=apps")))
+                        } catch (_: Exception) {
+                            toast("Search “icon pack” in your app store")
+                        }
+                    }
+                }
+                .show()
+        }
+    }
+
+    private fun fontChoice(): View {
+        val box = vbox()
+        box.addView(label("Font", 13f, C.SUB, true).lin(t = dp(10), b = dp(4)))
+        val row = hbox()
+        val names = listOf("Default", "Light", "Medium", "Condensed", "Serif", "Mono")
+        val faces = listOf(
+            android.graphics.Typeface.DEFAULT,
+            android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL),
+            android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL),
+            android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL),
+            android.graphics.Typeface.SERIF,
+            android.graphics.Typeface.MONOSPACE
+        )
+        names.forEachIndexed { i, n ->
+            val c = chip(n, i == Prefs.font) { if (i != Prefs.font) { Store.setInt("font", i); changed() } }
+            c.typeface = faces[i]
+            row.addView(c)
+        }
+        box.addView(hscroll(row))
+        return box
     }
 
     private fun statusRow(icon: String, name: String, value: String, ok: Boolean, onClick: () -> Unit): View {
@@ -184,14 +296,14 @@ class SettingsActivity : AppCompatActivity() {
         return box
     }
 
-    /** Shows the chosen icon shape with this app's own icon. */
+    /** Shows the chosen icon shape with a few of your apps. */
     private fun shapePreview(): View {
         val row = hbox()
         row.gravity = Gravity.CENTER
         val size = dp(56)
         val me = try { packageManager.getApplicationIcon(packageName) } catch (_: Exception) { null }
-        for (s in listOf(Apps.list.getOrNull(0), Apps.list.getOrNull(1), Apps.list.getOrNull(2))) {
-            val d = s?.let { try { it.info.getIcon(0) } catch (_: Exception) { null } } ?: me ?: continue
+        for (s in listOf(Apps.list.getOrNull(0), Apps.list.getOrNull(1), Apps.list.getOrNull(2), Apps.list.getOrNull(3))) {
+            val d = s?.let { a -> IconPacks.drawable(this, a) ?: (try { a.info.getIcon(0) } catch (_: Exception) { null }) } ?: me ?: continue
             val iv = ImageView(this)
             iv.setImageBitmap(Icons.render(d, size))
             row.addView(iv, LinearLayout.LayoutParams(size, size).apply { setMargins(dp(8), dp(4), dp(8), dp(8)) })

@@ -73,6 +73,40 @@ object Prefs {
     val autoAdd: Boolean get() = Store.bool("auto_add", true)
     val dockAlpha: Int get() = Store.int("dock_alpha", 30)
     val hidden: Set<String> get() = Store.set("hidden")
+
+    // v4: layout, text, widgets, drawer, icon pack
+    /** 0 compact · 1 normal · 2 roomy (space between rows) */
+    val spacing: Int get() = Store.int("spacing", 1)
+    /** 0 none · 1 normal · 2 wide (space at the screen sides) */
+    val margins: Int get() = Store.int("margins", 1)
+    /** label size in sp */
+    val labelSize: Int get() = Store.int("label_size", 12)
+    /** 0 default · 1 light · 2 medium · 3 condensed · 4 serif · 5 mono */
+    val font: Int get() = Store.int("font", 0)
+    /** 0 white with shadow · 1 black (for light wallpapers) */
+    val labelDark: Boolean get() = Store.bool("label_dark", false)
+    /** 0 big · 1 dot-matrix · 2 analog · 3 stacked (style for new clock widgets) */
+    val clockStyle: Int get() = Store.int("clock_style", 0)
+    /** clock & calendar app icons show the real time and date */
+    val liveIcons: Boolean get() = Store.bool("live_icons", true)
+    /** new folders are 2 × 2 (HyperOS style) */
+    val bigFolders: Boolean get() = Store.bool("big_folders", false)
+    /** App Library: 0 A–Z without headers · 1 by letter · 2 by colour */
+    val drawerGroup: Int get() = Store.int("drawer_group", 1)
+    val drawerCols: Int get() = Store.int("drawer_cols", 4)
+    /** Nothing-style category chips on top of the App Library */
+    val drawerChips: Boolean get() = Store.bool("drawer_chips", true)
+    /** package of the chosen icon pack ("" = none) */
+    val iconPack: String get() = Store.str("icon_pack", "")
+
+    fun typeface(): android.graphics.Typeface = when (font) {
+        1 -> android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)
+        2 -> android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        3 -> android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)
+        4 -> android.graphics.Typeface.SERIF
+        5 -> android.graphics.Typeface.MONOSPACE
+        else -> android.graphics.Typeface.DEFAULT
+    }
     val version: Int get() = Store.int("version", 0)
 
     fun bump() { Store.setInt("version", version + 1) }
@@ -187,6 +221,98 @@ object Apps {
 
     fun isSystem(app: AppInfo): Boolean = (app.info.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
 
+    private val catCache = HashMap<String, String>()
+
+    /** Nothing-OS-style drawer category for an app. */
+    fun drawerCategory(app: AppInfo): String = synchronized(catCache) {
+        catCache.getOrPut(app.key) {
+            val p = app.pkg.lowercase()
+            val l = app.label.lowercase()
+            fun has(vararg w: String) = w.any { p.contains(it) || l.contains(it) }
+            when {
+                has("whatsapp", "messenger", "facebook", "instagram", "telegram", "viber", "signal", "snapchat", "twitter",
+                    "tiktok", "musically", "discord", "imo", "linkedin", "reddit", "threads", "mms", "messaging", "sms") -> "Social"
+                has("youtube", "spotify", "netflix", "music", "video", "player", "podcast", "tv", "prime", "hotstar", "radio") -> "Media"
+                has("camera", "gallery", "photo", "snapseed", "lightroom", "picsart") -> "Photos"
+                has("esewa", "khalti", "bank", "wallet", "pay", "finance", "money", "fonepay", "imepay", "binance", "trading") -> "Finance"
+                has("daraz", "amazon", "shop", "store", "mart", "food", "foodmandu", "pathao", "indrive", "uber") -> "Shopping"
+                has("maps", "travel", "booking", "airbnb", "weather", "flight") -> "Travel"
+                has("gmail", "mail", "docs", "sheets", "slides", "drive", "office", "word", "excel", "notion", "calendar",
+                    "keep", "zoom", "teams", "meet", "slack", "classroom", "pdf") -> "Work"
+                has("settings", "clock", "calculator", "files", "contacts", "dialer", "phone", "recorder", "compass",
+                    "flashlight", "launcher", "vending", "chrome", "browser", "security", "cleaner", "backup", "yogi") -> "Tools"
+                else -> when (app.category) {
+                    ApplicationInfo.CATEGORY_GAME -> "Games"
+                    ApplicationInfo.CATEGORY_SOCIAL -> "Social"
+                    ApplicationInfo.CATEGORY_AUDIO, ApplicationInfo.CATEGORY_VIDEO -> "Media"
+                    ApplicationInfo.CATEGORY_IMAGE -> "Photos"
+                    ApplicationInfo.CATEGORY_NEWS -> "Reading"
+                    ApplicationInfo.CATEGORY_MAPS -> "Travel"
+                    ApplicationInfo.CATEGORY_PRODUCTIVITY -> "Work"
+                    else -> if (isSystem(app)) "Tools" else "Other"
+                }
+            }
+        }
+    }
+
+    val CATEGORY_ORDER = listOf("Social", "Media", "Photos", "Games", "Work", "Finance", "Shopping", "Travel", "Reading", "Tools", "Other")
+
+    private val colourCache = HashMap<String, Int>()
+
+    /** Colour group of an icon: 0 red · 1 orange · 2 yellow · 3 green · 4 teal · 5 blue · 6 purple · 7 pink · 8 black & white. */
+    fun colourGroup(b: Bitmap, key: String): Int = synchronized(colourCache) {
+        colourCache.getOrPut(key) {
+            val hist = FloatArray(9)
+            val hsv = FloatArray(3)
+            val step = (b.width / 12).coerceAtLeast(1)
+            var y = step / 2
+            while (y < b.height) {
+                var x = step / 2
+                while (x < b.width) {
+                    val c = b.getPixel(x, y)
+                    if (Color.alpha(c) > 200) {
+                        Color.colorToHSV(c, hsv)
+                        if (hsv[1] < 0.22f || hsv[2] < 0.18f) hist[8] += 0.35f else {
+                            val hue = hsv[0]
+                            val g = when {
+                                hue < 15 || hue >= 345 -> 0
+                                hue < 40 -> 1
+                                hue < 70 -> 2
+                                hue < 160 -> 3
+                                hue < 195 -> 4
+                                hue < 255 -> 5
+                                hue < 290 -> 6
+                                else -> 7
+                            }
+                            hist[g] += hsv[1] * hsv[2]
+                        }
+                    }
+                    x += step
+                }
+                y += step
+            }
+            hist.indices.maxByOrNull { hist[it] } ?: 8
+        }
+    }
+
+    val COLOUR_NAMES = listOf("Red", "Orange", "Yellow", "Green", "Teal", "Blue", "Purple", "Pink", "Black & white")
+    val COLOUR_DOTS = listOf(0xFFFF453A.toInt(), 0xFFFF9F0A.toInt(), 0xFFFFD60A.toInt(), 0xFF30D158.toInt(), 0xFF40C8E0.toInt(),
+        0xFF0A84FF.toInt(), 0xFFBF5AF2.toInt(), 0xFFFF375F.toInt(), 0xFF8E8E93.toInt())
+
+    private val clockPkgs = setOf("com.google.android.deskclock", "com.android.deskclock", "com.sec.android.app.clockpackage",
+        "com.oneplus.deskclock", "com.coloros.alarmclock", "com.oplus.alarmclock", "com.nothing.clock", "com.motorola.timeweatherwidget",
+        "com.miui.clock", "com.huawei.deskclock", "com.vivo.alarmclock", "com.transsion.deskclock")
+    private val calendarPkgs = setOf("com.google.android.calendar", "com.android.calendar", "com.samsung.android.calendar",
+        "com.miui.calendar", "com.coloros.calendar", "com.oneplus.calendar", "com.nothing.calendar", "com.xiaomi.calendar")
+
+    /** 1 = live clock icon · 2 = live calendar icon · 0 = normal. */
+    fun liveKind(app: AppInfo): Int = when {
+        !Prefs.liveIcons -> 0
+        app.pkg in clockPkgs -> 1
+        app.pkg in calendarPkgs -> 2
+        else -> 0
+    }
+
     fun categoryName(c: Int): String? = when (c) {
         ApplicationInfo.CATEGORY_GAME -> "Games"
         ApplicationInfo.CATEGORY_SOCIAL -> "Social"
@@ -242,7 +368,7 @@ object Icons {
     @Volatile var size = 144
 
     private fun cacheKey(app: AppInfo): String =
-        "${app.key}|${app.updated}|${Prefs.shape}|${Prefs.themed}|$size"
+        "${app.key}|${app.updated}|${Prefs.shape}|${Prefs.themed}|${Prefs.iconPack}|$size"
 
     fun cached(app: AppInfo): Bitmap? = mem.get(cacheKey(app))
 
@@ -264,8 +390,18 @@ object Icons {
             } catch (_: Exception) {
             }
         }
-        val d = try { app.info.getIcon(0) } catch (_: Exception) { null }
-        val b = if (d != null) render(d, size) else placeholder(app.label, size)
+        // 1) the chosen icon pack (its icons keep their own design)
+        val packIcon = IconPacks.drawable(ctx, app)
+        val b = if (packIcon != null) {
+            val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            packIcon.setBounds(0, 0, size, size)
+            packIcon.draw(Canvas(out))
+            out
+        } else {
+            // 2) the app's own icon, cut to our shape
+            val d = try { app.info.getIcon(0) } catch (_: Exception) { null }
+            if (d != null) render(d, size) else placeholder(app.label, size)
+        }
         mem.put(k, b)
         try {
             FileOutputStream(file).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -368,3 +504,86 @@ object Icons {
 
 /** JSON helper. */
 fun JSONArray.strings(): List<String> = (0 until length()).map { optString(it) }
+
+
+/**
+ * Icon packs in the common format used by thousands of free packs (Nova / ADW "appfilter.xml").
+ * Install any icon pack from the Play Store or GitHub, then pick it in Settings.
+ */
+object IconPacks {
+    private val ACTIONS = listOf("org.adw.launcher.THEMES", "com.novalauncher.THEME", "com.teslacoilsw.launcher.THEME",
+        "com.gau.go.launcherex.theme", "com.dlto.atom.launcher.THEME")
+
+    @Volatile private var loadedPkg = ""
+    @Volatile private var map: Map<String, String> = emptyMap()
+    @Volatile private var res: android.content.res.Resources? = null
+
+    /** Installed icon packs: package → name. */
+    fun installed(ctx: Context): List<Pair<String, String>> {
+        val pm = ctx.packageManager
+        val out = LinkedHashMap<String, String>()
+        for (a in ACTIONS) {
+            val list = try { pm.queryIntentActivities(Intent(a), 0) } catch (_: Exception) { emptyList() }
+            for (r in list) {
+                val p = r.activityInfo?.packageName ?: continue
+                out[p] = try { r.loadLabel(pm).toString() } catch (_: Exception) { p }
+            }
+        }
+        return out.entries.map { it.key to it.value }.sortedBy { it.second.lowercase() }
+    }
+
+    @Synchronized
+    private fun ensure(ctx: Context) {
+        val want = Prefs.iconPack
+        if (want == loadedPkg) return
+        loadedPkg = want
+        map = emptyMap()
+        res = null
+        if (want.isEmpty()) return
+        try {
+            val r = ctx.packageManager.getResourcesForApplication(want)
+            val m = HashMap<String, String>()
+            val id = r.getIdentifier("appfilter", "xml", want)
+            val parser: org.xmlpull.v1.XmlPullParser = if (id != 0) r.getXml(id) else {
+                val p = android.util.Xml.newPullParser()
+                p.setInput(r.assets.open("appfilter.xml"), "UTF-8")
+                p
+            }
+            var ev = parser.eventType
+            while (ev != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                if (ev == org.xmlpull.v1.XmlPullParser.START_TAG && parser.name == "item") {
+                    val comp = parser.getAttributeValue(null, "component") ?: ""
+                    val draw = parser.getAttributeValue(null, "drawable") ?: ""
+                    // ComponentInfo{com.whatsapp/com.whatsapp.Main}
+                    val inner = comp.substringAfter("{", "").substringBefore("}", "")
+                    if (inner.isNotEmpty() && draw.isNotEmpty()) {
+                        val pkg = inner.substringBefore("/")
+                        var cls = inner.substringAfter("/", "")
+                        if (cls.startsWith(".")) cls = pkg + cls
+                        m["$pkg/$cls"] = draw
+                        if (!m.containsKey(pkg)) m[pkg] = draw
+                    }
+                }
+                ev = parser.next()
+            }
+            map = m
+            res = r
+        } catch (_: Exception) {
+            map = emptyMap()
+            res = null
+        }
+    }
+
+    fun drawable(ctx: Context, app: AppInfo): android.graphics.drawable.Drawable? {
+        if (Prefs.iconPack.isEmpty()) return null
+        ensure(ctx)
+        val r = res ?: return null
+        val name = map["${app.pkg}/${app.cls}"] ?: map[app.pkg] ?: return null
+        return try {
+            val id = r.getIdentifier(name, "drawable", Prefs.iconPack)
+            if (id == 0) null else r.getDrawable(id, null)
+        } catch (_: Exception) {
+            null
+        }
+    }
+}

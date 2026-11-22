@@ -40,7 +40,8 @@ class LauncherActivity : AppCompatActivity() {
     private lateinit var dock: LinearLayout
     private lateinit var editBar: LinearLayout
     private lateinit var highlight: View
-    private lateinit var clock: ClockWidget
+    private val builtinViews = ArrayList<BuiltinWidget>()
+    private val liveViews = ArrayList<IconView>()
     lateinit var widgets: WidgetsPage
     private var library: Library? = null
     private var folderView: View? = null
@@ -84,7 +85,8 @@ class LauncherActivity : AppCompatActivity() {
 
     private val minuteTick = object : Runnable {
         override fun run() {
-            clock.invalidate()
+            for (b in builtinViews) b.invalidate()
+            for (v in liveViews) v.invalidate()
             val now = System.currentTimeMillis()
             h.postDelayed(this, 60_000L - now % 60_000L + 50)
         }
@@ -104,7 +106,6 @@ class LauncherActivity : AppCompatActivity() {
         pager = Pager(this)
         dots = PageDots(this)
         dock = hbox()
-        clock = ClockWidget(this)
         widgets = WidgetsPage(this)
         home.addView(pager, LinearLayout.LayoutParams(MATCH, 0, 1f))
         home.addView(dots, LinearLayout.LayoutParams(MATCH, dp(22)))
@@ -119,7 +120,7 @@ class LauncherActivity : AppCompatActivity() {
         editBar = hbox()
         editBar.visibility = View.GONE
         editBar.setPadding(dp(14), 0, dp(14), 0)
-        editBar.addView(barButton("＋ Widget") { setEdit(false); pager.setPage(0, true); widgets.openPicker() })
+        editBar.addView(barButton("＋ Widget") { widgets.openPicker(true) })
         editBar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         editBar.addView(barButton("⚙ Settings") { startActivity(Intent(this, SettingsActivity::class.java)) })
         editBar.addView(barButton("Done") { setEdit(false) }.apply { setTextColor(Color.WHITE); background = ripple(C.ACCENT, 16f) })
@@ -187,8 +188,11 @@ class LauncherActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
     }
 
+    /** Space at the left and right of each page. */
+    private fun sideMargin(): Int = when (Prefs.margins) { 0 -> 0; 2 -> dp(22); else -> dp(8) }
+
     private fun computeSizes() {
-        val w = resources.displayMetrics.widthPixels
+        val w = resources.displayMetrics.widthPixels - 2 * sideMargin()
         val cellW = w / Prefs.cols
         iconPx = (min(cellW * 0.64f, dp(60).toFloat()) * Prefs.iconScale).toInt()
         Icons.size = iconPx
@@ -219,8 +223,8 @@ class LauncherActivity : AppCompatActivity() {
         fun add(it: Item?) {
             when (it) {
                 is AppItem -> out.add(it.key)
-                is FolderItem -> out.addAll(it.apps.take(9))
-                null -> Unit
+                is FolderItem -> out.addAll(it.apps.take(12))
+                else -> Unit
             }
         }
         Home.pages.take(2).forEach { p -> p.forEach { add(it) } }
@@ -250,7 +254,8 @@ class LauncherActivity : AppCompatActivity() {
     private fun fitRows() {
         val ph = pager.height
         if (ph <= 0) return
-        val cellH = iconPx + (if (Prefs.labels) dp(28) else dp(10)) + dp(16)
+        val gap = when (Prefs.spacing) { 0 -> dp(6); 2 -> dp(30); else -> dp(16) }
+        val cellH = iconPx + (if (Prefs.labels) dp(Prefs.labelSize + 16) else dp(10)) + gap
         val rows = (ph / cellH).coerceIn(4, 8)
         if (Home.cols != Prefs.cols || Home.rows != rows) Home.resize(Prefs.cols, rows)
     }
@@ -281,21 +286,24 @@ class LauncherActivity : AppCompatActivity() {
         val keep = if (firstBuild) pager.firstHome else pager.current
         firstBuild = false
         icons.clear()
-        (clock.parent as? ViewGroup)?.removeView(clock)
         (widgets.view.parent as? ViewGroup)?.removeView(widgets.view)
         pager.removeAllViews()
         pager.addView(widgets.view, FrameLayout.LayoutParams(MATCH, MATCH))
         val showLabels = Prefs.labels
+        builtinViews.clear()
+        liveViews.clear()
+        val margin = sideMargin()
         for ((p, page) in Home.pages.withIndex()) {
             val g = GridPage(this, Home.cols, Home.rows)
-            if (p == 0 && Prefs.clock) {
-                g.setHeader(clock, 2)
-                clock.refresh()
-            }
+            g.setPadding(margin, 0, margin, 0)
             for ((i, it) in page.withIndex()) {
                 if (it == null) continue
-                val v = makeIcon(it, Slot(Slot.PAGE, p, i), showLabels) ?: continue
-                g.addCell(v, i)
+                val v: View = if (it is WidgetItem) {
+                    makeWidget(it, Slot(Slot.PAGE, p, i)) ?: continue
+                } else {
+                    makeIcon(it, Slot(Slot.PAGE, p, i), showLabels) ?: continue
+                }
+                g.addCell(v, i, it.w, it.h)
             }
             pager.addView(g, FrameLayout.LayoutParams(MATCH, MATCH))
         }
@@ -325,11 +333,14 @@ class LauncherActivity : AppCompatActivity() {
                 val app = Apps.get(item.key) ?: return null
                 v.label = app.label
                 v.icon = Icons.cached(app) ?: Icons.get(this, app)
+                v.live = Apps.liveKind(app)
+                if (v.live != 0) liveViews.add(v)
             }
             is FolderItem -> {
                 v.label = item.name
-                v.minis = item.apps.take(9).mapNotNull { k -> Apps.get(k)?.let { Icons.cached(it) ?: Icons.get(this, it) } }
+                v.minis = item.apps.take(12).mapNotNull { k -> Apps.get(k)?.let { Icons.cached(it) ?: Icons.get(this, it) } }
             }
+            is WidgetItem -> return null
         }
         v.onTap = { tapped(it) }
         v.onLong = { showMenu(it) }
@@ -348,8 +359,14 @@ class LauncherActivity : AppCompatActivity() {
                 Apps.launch(this, app, v)
                 if (v.slot?.area == Slot.FOLDER) h.postDelayed({ closeFolder() }, 300)
             }
-            is FolderItem -> openFolder(it)
-            null -> Unit
+            is FolderItem -> {
+                // large folder: tap an app directly; the last place ("more") opens the folder
+                val cell = if (v.isBig && !editing) v.bigCellAt(v.upX, v.upY) else -1
+                val direct = cell >= 0 && (cell < 8 || it.apps.size <= 9) && cell < it.apps.size
+                val app = if (direct) Apps.get(it.apps[cell]) else null
+                if (app != null) Apps.launch(this, app, v) else openFolder(it)
+            }
+            else -> Unit
         }
     }
 
@@ -358,7 +375,7 @@ class LauncherActivity : AppCompatActivity() {
             v.badge = when (val it = v.item) {
                 is AppItem -> Apps.get(it.key)?.let { Badges.count(it.pkg) } ?: 0
                 is FolderItem -> it.apps.sumOf { k -> Apps.get(k)?.let { a -> Badges.count(a.pkg) } ?: 0 }
-                null -> 0
+                else -> 0
             }
         }
     }
@@ -383,6 +400,7 @@ class LauncherActivity : AppCompatActivity() {
                 Home.save()
                 buildHome()
             }
+            is WidgetItem -> Unit
             is FolderItem -> AlertDialog.Builder(this)
                 .setTitle("Ungroup “${it.name}”?")
                 .setMessage("The apps go back onto the home screen.")
@@ -413,6 +431,27 @@ class LauncherActivity : AppCompatActivity() {
             c.drawBitmap(bmp, 0f, 0f, null)
             c.restore()
         }
+    }
+
+    /** Moves a widget (long-press menu → Move). */
+    private fun startWidgetDrag(v: View, item: WidgetItem, slot: Slot) {
+        popup?.dismiss()
+        drag = DragState(slot, item)
+        dropped = false
+        @Suppress("DEPRECATION")
+        val ok = try {
+            val shadow = View.DragShadowBuilder(v)
+            if (Build.VERSION.SDK_INT >= 24) v.startDragAndDrop(null, shadow, drag, View.DRAG_FLAG_OPAQUE)
+            else v.startDrag(null, shadow, drag, 0)
+        } catch (_: Exception) {
+            false
+        }
+        if (!ok) {
+            drag = null
+            return
+        }
+        v.alpha = 0.25f
+        if (!editing) h.post { setEdit(true) }
     }
 
     private fun startDrag(v: IconView) {
@@ -469,10 +508,16 @@ class LauncherActivity : AppCompatActivity() {
         return Rect(x, y, x + v.width, y + v.height)
     }
 
-    /** Which slot is under the finger, its rectangle, and whether it means "make a folder". */
-    private fun target(x: Float, y: Float): Triple<Slot, Rect, Boolean>? {
+    /**
+     * Which slot is under the finger, the rectangle to highlight, and whether it means "make a folder".
+     * Items bigger than one cell are placed with the finger at their centre.
+     */
+    private fun target(x: Float, y: Float, item: Item?): Triple<Slot, Rect, Boolean>? {
+        val iw = item?.w ?: 1
+        val ih = item?.h ?: 1
         val dr = rectIn(dock)
         if (dr.contains(x.toInt(), y.toInt())) {
+            if (iw > 1 || ih > 1) return null
             val cw = dr.width() / Home.DOCK_SIZE
             val i = ((x - dr.left) / cw).toInt().coerceIn(0, Home.DOCK_SIZE - 1)
             val cell = Rect(dr.left + i * cw, dr.top, dr.left + (i + 1) * cw, dr.bottom)
@@ -483,19 +528,37 @@ class LauncherActivity : AppCompatActivity() {
         if (!pager.isHome()) return null
         val pr = rectIn(pager)
         if (!pr.contains(x.toInt(), y.toInt())) return null
-        val cw = pr.width() / Home.cols
+        val m = sideMargin()
+        val left = pr.left + m
+        val cw = (pr.width() - 2 * m) / Home.cols
         val ch = pr.height() / Home.rows
         if (cw <= 0 || ch <= 0) return null
-        val col = ((x - pr.left) / cw).toInt().coerceIn(0, Home.cols - 1)
-        val row = ((y - pr.top) / ch).toInt().coerceIn(0, Home.rows - 1)
         val page = pager.current - pager.firstHome
+        var col = ((x - left) / cw).toInt().coerceIn(0, Home.cols - 1)
+        var row = ((y - pr.top) / ch).toInt().coerceIn(0, Home.rows - 1)
+        if (iw > 1 || ih > 1) {
+            col = (col - (iw - 1) / 2).coerceIn(0, Home.cols - iw)
+            row = (row - (ih - 1) / 2).coerceIn(0, Home.rows - ih)
+            val slot = Slot(Slot.PAGE, page, row * Home.cols + col)
+            val cell = Rect(left + col * cw, pr.top + row * ch, left + (col + iw) * cw, pr.top + (row + ih) * ch)
+            return Triple(slot, cell, false)
+        }
         val idx = row * Home.cols + col
         val slot = Slot(Slot.PAGE, page, idx)
         if (!Home.usable(slot)) return null
-        val cell = Rect(pr.left + col * cw, pr.top + row * ch, pr.left + (col + 1) * cw, pr.top + (row + 1) * ch)
+        // a cell covered by a big item highlights the whole item
+        val anchor = Home.anchorAt(page, idx)
+        val covering = if (anchor >= 0) Home.pages[page][anchor] else null
+        if (covering != null && (covering.w > 1 || covering.h > 1)) {
+            val ac = anchor % Home.cols
+            val ar = anchor / Home.cols
+            val r = Rect(left + ac * cw, pr.top + ar * ch, left + (ac + covering.w) * cw, pr.top + (ar + covering.h) * ch)
+            return Triple(slot, r, covering is FolderItem && item is AppItem)
+        }
+        val cell = Rect(left + col * cw, pr.top + row * ch, left + (col + 1) * cw, pr.top + (row + 1) * ch)
         val fx = (x - cell.left) / cw
         val fy = (y - cell.top) / ch
-        val merge = Home.get(slot) != null && fx in 0.2f..0.8f && fy in 0.05f..0.75f
+        val merge = covering != null && item is AppItem && fx in 0.2f..0.8f && fy in 0.05f..0.75f
         return Triple(slot, cell, merge)
     }
 
@@ -510,7 +573,7 @@ class LauncherActivity : AppCompatActivity() {
         when (e.action) {
             DragEvent.ACTION_DRAG_STARTED -> return st != null
             DragEvent.ACTION_DRAG_LOCATION -> {
-                val t = target(e.x, e.y)
+                val t = target(e.x, e.y, st?.item)
                 if (t == null) {
                     highlight.visibility = View.GONE
                 } else {
@@ -541,7 +604,7 @@ class LauncherActivity : AppCompatActivity() {
             }
             DragEvent.ACTION_DROP -> {
                 if (st == null) return false
-                val t = target(e.x, e.y) ?: return false
+                val t = target(e.x, e.y, st.item) ?: return false
                 dropped = Home.drop(st.src, st.item, t.first, t.third)
                 if (dropped) Home.save()
                 return dropped
@@ -691,6 +754,14 @@ class LauncherActivity : AppCompatActivity() {
             if (!Apps.isSystem(app)) menuRow(box, "🗑", "Uninstall", 0xFFFF6961.toInt()) { Apps.uninstall(this, app) }
         } else if (item is FolderItem) {
             menuRow(box, "✎", "Rename folder") { renameFolder(item) }
+            if (iv?.slot?.area == Slot.PAGE) {
+                menuRow(box, if (item.big) "▫" else "▣", if (item.big) "Make small (1 × 1)" else "Make large (2 × 2)") {
+                    if (Home.resize(item, if (item.big) 1 else 2, if (item.big) 1 else 2)) {
+                        Home.save()
+                        buildHome()
+                    } else toast("No 2 × 2 space on this page — make room first")
+                }
+            }
             menuRow(box, "▦", "Edit Home Screen") { setEdit(true) }
             menuRow(box, "⊟", "Ungroup", 0xFFFF6961.toInt()) {
                 Home.ungroup(item)
@@ -904,7 +975,6 @@ class LauncherActivity : AppCompatActivity() {
             }
             (dock.layoutParams as LinearLayout.LayoutParams).height = iconPx + dp(26)
             dock.requestLayout()
-            Home.freeReserved()
             pager.post {
                 fitRows()
                 if (Home.isEmpty()) Home.firstRun(this, Apps.list)
@@ -912,7 +982,8 @@ class LauncherActivity : AppCompatActivity() {
                 buildHome()
             }
         } else if (ready) {
-            clock.refresh()
+            for (b in builtinViews) b.refresh()
+            for (v in liveViews) v.invalidate()
         }
         h.removeCallbacks(minuteTick)
         h.post(minuteTick)
@@ -928,5 +999,118 @@ class LauncherActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         widgets.onResult(requestCode, resultCode, data)
+    }
+
+    // ===================================================================== widgets on home pages
+
+    private fun makeWidget(w: WidgetItem, slot: Slot): View? {
+        val inner: View = if (w.kind == "app") {
+            WidgetHost.create(this, w.wid) ?: return null
+        } else {
+            val b = BuiltinWidget(this, w.kind, w.style)
+            b.refresh()
+            b.setOnClickListener { openBuiltin(w.kind) }
+            builtinViews.add(b)
+            b
+        }
+        val f = WidgetHost.frame(this, inner, 26f, glass = w.kind == "app")
+        f.setPadding(dp(4), dp(4), dp(4), dp(4))
+        f.onLong = { widgetMenu(f, w, slot) }
+        val d = drag
+        if (d != null && d.src == slot) f.alpha = 0.25f
+        return f
+    }
+
+    private fun openBuiltin(kind: String) {
+        val i = when (kind) {
+            "date" -> Intent(Intent.ACTION_VIEW, android.net.Uri.parse("content://com.android.calendar/time/" + System.currentTimeMillis()))
+            "battery" -> Intent(Intent.ACTION_POWER_USAGE_SUMMARY)
+            else -> Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)
+        }
+        try {
+            startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun widgetMenu(v: View, w: WidgetItem, slot: Slot) {
+        val box = vbox()
+        box.background = rounded(0xF2242426.toInt(), dpf(18f))
+        box.setPadding(0, dp(4), 0, dp(4))
+        if (w.kind == "clock") {
+            val names = listOf("Big digits", "Dot-matrix", "Analog", "Stacked")
+            for ((i, n) in names.withIndex()) {
+                menuRow(box, if (w.style == i) "●" else "○", "Style: $n") {
+                    w.style = i
+                    Home.save()
+                    buildHome()
+                }
+            }
+            divider(box)
+        }
+        val sizes = when (w.kind) {
+            "date", "battery" -> listOf(2 to 2, 1 to 1, 2 to 1)
+            "clock" -> listOf(Home.cols to 2, Home.cols to 3, 2 to 2, Home.cols to 1)
+            else -> listOf(Home.cols to 2, Home.cols to 3, 2 to 2, Home.cols to 1, Home.cols to 4)
+        }
+        for ((sw, sh) in sizes) {
+            if (sw == w.sw && sh == w.sh) continue
+            menuRow(box, "⤢", "Size $sw × $sh") {
+                if (Home.resize(w, sw, sh)) {
+                    Home.save()
+                    buildHome()
+                } else toast("Not enough room on this page")
+            }
+        }
+        divider(box)
+        menuRow(box, "✥", "Move") { startWidgetDrag(v, w, slot) }
+        menuRow(box, "🗑", "Remove widget", 0xFFFF6961.toInt()) {
+            Home.removeAt(slot)
+            if (w.kind == "app") WidgetHost.delete(this, w.wid)
+            Home.save()
+            buildHome()
+        }
+        val pw = dp(240)
+        box.measure(View.MeasureSpec.makeMeasureSpec(pw, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        val sw = resources.displayMetrics.widthPixels
+        val x = (loc[0] + v.width / 2 - pw / 2).coerceIn(dp(8), sw - pw - dp(8))
+        val below = loc[1] + v.height + dp(6)
+        val y = if (below + box.measuredHeight < resources.displayMetrics.heightPixels - insetBottom) below
+        else (loc[1] - box.measuredHeight - dp(6)).coerceAtLeast(insetTop + dp(8))
+        val p = PopupWindow(box, pw, ViewGroup.LayoutParams.WRAP_CONTENT, true)
+        p.elevation = dpf(12f)
+        p.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        p.isOutsideTouchable = true
+        popup = p
+        try {
+            p.showAtLocation(root, Gravity.NO_GRAVITY, x, y)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun homePage(): Int = (pager.current - pager.firstHome).coerceAtLeast(0)
+
+    fun addBuiltinWidget(kind: String, style: Int) {
+        val (w, hgt) = if (kind == "clock") Home.cols to 2 else 2 to 2
+        val item = WidgetItem(kind, -1, w, hgt, style)
+        Home.place(item, homePage())
+        Home.save()
+        buildHome()
+        Home.slotOf(item)?.let { pager.setPage(it.page + pager.firstHome, true) }
+    }
+
+    fun addAppWidget(id: Int, info: android.appwidget.AppWidgetProviderInfo?) {
+        val pr = rectIn(pager)
+        val cw = ((pr.width() - 2 * sideMargin()) / Home.cols).coerceAtLeast(1)
+        val ch = (pr.height() / Home.rows).coerceAtLeast(1)
+        val w = if (info == null) Home.cols else ((info.minWidth + dp(16)) / cw + 1).coerceIn(1, Home.cols)
+        val hgt = if (info == null) 2 else ((info.minHeight + dp(16)) / ch + 1).coerceIn(1, Home.rows)
+        val item = WidgetItem("app", id, w, hgt)
+        Home.place(item, homePage())
+        Home.save()
+        buildHome()
+        Home.slotOf(item)?.let { pager.setPage(it.page + pager.firstHome, true) }
     }
 }
