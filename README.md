@@ -23,6 +23,10 @@ It's small (only AndroidX libraries, no tracking, no ads) and works fully offlin
 * **iOS folders**: 3 × 3 pages you swipe, zooming out of the folder icon, with a 9-app or 4-app folder preview.
 * **Wallpapers**: 12 Yogi wallpapers drawn on the phone (bloom, HyperOS waves, Nothing dots…), your own photo, and a dim option.
 * **New settings**: Lawnchair-style sections with search.
+* **Yogi icons**: a built-in icon set for the apps on every phone (phone, messages, camera, settings, clock, maps, browser, mail, music, notes…). Choose it in Settings → Icons → Icon pack, next to the original Pixel/system icons.
+* **Lock home screen layout** (One UI): nothing can be moved or removed by accident.
+* **Hidden space** (OxygenOS): hidden apps move into a space you open with a two-finger swipe up (or by searching "hidden"), protected by your screen lock.
+* Fixed: after opening a category in the iOS App Library and going Home, the library now opens fresh, with *All apps A–Z* always one tap away.
 
 ## New in v5
 * 🔒 **Private Space (Android 15+) and 💼 work apps**, as on the Pixel launcher:

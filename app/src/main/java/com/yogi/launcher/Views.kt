@@ -414,6 +414,28 @@ class Pager(ctx: Context) : FrameLayout(ctx) {
     var onSwipeDown: (() -> Unit)? = null
     var onDoubleTap: (() -> Unit)? = null
     var onLongPress: (() -> Unit)? = null
+    /** two fingers swiped up (OxygenOS hidden space) */
+    var onTwoFingerUp: (() -> Unit)? = null
+    private var twoY = -1f
+    private var twoFired = false
+
+    override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) {
+                twoY = (e.getY(0) + e.getY(1)) / 2
+                twoFired = false
+            }
+            MotionEvent.ACTION_MOVE -> if (twoY >= 0 && e.pointerCount >= 2 && !twoFired) {
+                val y = (e.getY(0) + e.getY(1)) / 2
+                if (twoY - y > slop * 5) {
+                    twoFired = true
+                    onTwoFingerUp?.invoke()
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> twoY = -1f
+        }
+        return super.dispatchTouchEvent(e)
+    }
 
     private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
     private val minFling = 600f * resources.displayMetrics.density
@@ -496,7 +518,7 @@ class Pager(ctx: Context) : FrameLayout(ctx) {
             parent?.requestDisallowInterceptTouchEvent(true)
             return true
         }
-        if (!tracking && !vertical && abs(dy) > slop * 2 && abs(dy) > abs(dx) * 1.3f && isHome()) {
+        if (!tracking && !vertical && e.pointerCount == 1 && twoY < 0 && abs(dy) > slop * 2 && abs(dy) > abs(dx) * 1.3f && isHome()) {
             vertical = true
             if (dy < 0) onSwipeUp?.invoke() else onSwipeDown?.invoke()
             return true

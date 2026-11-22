@@ -117,6 +117,10 @@ object Prefs {
     val folderPreview: Int get() = Store.int("folder_preview", 0)
     /** Android widgets get a glass background */
     val widgetGlass: Boolean get() = Store.bool("widget_glass", true)
+    /** One UI: lock the home screen layout (no moving, removing or edit mode) */
+    val lockLayout: Boolean get() = Store.bool("lock_layout", false)
+    /** OxygenOS: hidden apps live in a Hidden space (two-finger swipe up / search "hidden") */
+    val hiddenLock: Boolean get() = Store.bool("hidden_lock", true)
     /** wallpaper dimming over the home screen, 0–60 % */
     val wallDim: Int get() = Store.int("wall_dim", 0)
 
@@ -416,9 +420,11 @@ object Icons {
             } catch (_: Exception) {
             }
         }
+        // 0) built-in Yogi icons for common apps
+        val yogi = if (Prefs.iconPack == YogiIcons.PACK) YogiIcons.render(app, size) else null
         // 1) the chosen icon pack (its icons keep their own design)
-        val packIcon = IconPacks.drawable(ctx, app)
-        val b = if (packIcon != null) {
+        val packIcon = if (yogi == null) IconPacks.drawable(ctx, app) else null
+        val b = if (yogi != null) yogi else if (packIcon != null) {
             val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             packIcon.setBounds(0, 0, size, size)
             packIcon.draw(Canvas(out))
@@ -601,7 +607,7 @@ object IconPacks {
     }
 
     fun drawable(ctx: Context, app: AppInfo): android.graphics.drawable.Drawable? {
-        if (Prefs.iconPack.isEmpty()) return null
+        if (Prefs.iconPack.isEmpty() || Prefs.iconPack == YogiIcons.PACK) return null
         ensure(ctx)
         val r = res ?: return null
         val name = map["${app.pkg}/${app.cls}"] ?: map[app.pkg] ?: return null
@@ -757,6 +763,7 @@ object SettingsSearch {
         Triple("🛠", "Developer options", android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
         Triple("ℹ️", "About phone", android.provider.Settings.ACTION_DEVICE_INFO_SETTINGS),
         Triple("🔒", "Private space", "yogi:private"),
+        Triple("🙈", "Hidden space · hidden apps", "yogi:hidden"),
         Triple("💼", "Work apps · work profile", "yogi:work"),
         Triple("🏠", "Yogi Launcher settings", "yogi:settings"),
         Triple("⚙️", "All settings", android.provider.Settings.ACTION_SETTINGS)

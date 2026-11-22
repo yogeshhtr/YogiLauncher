@@ -52,6 +52,7 @@ class Library(private val a: LauncherActivity) {
         const val PERSONAL = 0
         const val WORK = 1
         const val PRIVATE = 2
+        const val HIDDEN = 3
         const val LIB = "\u0000lib"
         const val ALL = "\u0000all"
     }
@@ -199,6 +200,7 @@ class Library(private val a: LauncherActivity) {
         items.add(PERSONAL to "Personal")
         if (Profiles.workUser != null) items.add(WORK to "💼 Work")
         if (privateVisible()) items.add(PRIVATE to "🔒 Private")
+        if (tab == HIDDEN) items.add(HIDDEN to "🙈 Hidden")
         if (items.size < 2 || search.text.isNotEmpty()) {
             tabs.visibility = View.GONE
             if (tab != PERSONAL && items.none { it.first == tab }) tab = PERSONAL
@@ -292,9 +294,24 @@ class Library(private val a: LauncherActivity) {
         } else when (tab) {
             WORK -> workRows(out, all)
             PRIVATE -> privateRows(out, all)
+            HIDDEN -> {
+                val hid = Apps.list.filter { it.key in hidden }
+                if (hid.isEmpty()) out.add(Row(4, "🙈\n\nHidden space is empty\nHold an app → Hide app to move it here."))
+                addList(out, hid, false)
+                out.add(Row(0, "Hidden space"))
+                out.add(Row(2, "⚙  Manage hidden apps") {
+                    a.startActivity(Intent(a, SettingsActivity::class.java).putExtra("page", "hidden"))
+                    close()
+                })
+            }
             else -> when (view) {
                 LIB -> {
-                    // iOS-style App Library: a box per category
+                    // iOS-style App Library: a box per category; the list of every app is one tap away
+                    out.add(Row(2, "☰   All apps  A–Z") {
+                        view = ALL
+                        rebuild()
+                        list.scrollToPosition(0)
+                    })
                     val top = Apps.top(8)
                     if (top.size >= 2) out.add(Row(3, "Suggestions", apps = top))
                     val recent = apps.sortedByDescending { it.updated }.take(8)
@@ -383,13 +400,20 @@ class Library(private val a: LauncherActivity) {
         }
         // "private" finds the private space even when it is hidden (like Pixel)
         val pu = Profiles.privateUser
-        if (pu != null && ql.length >= 3 && ("private space".startsWith(ql) || ql.startsWith("priv") || ql == "secret" || ql == "hidden")) {
+        if (pu != null && ql.length >= 3 && ("private space".startsWith(ql) || ql.startsWith("priv") || ql == "secret")) {
             out.add(Row(0, "Private space"))
             out.add(Row(2, if (Profiles.isLocked(a, pu)) "🔒  Private space · tap to open" else "🔓  Private space · open") {
                 search.setText("")
                 revealPrivate = true
                 tab = PRIVATE
                 rebuild()
+            })
+        }
+        if (ql.length >= 3 && ("hidden space".startsWith(ql) || "hidden apps".startsWith(ql))) {
+            out.add(Row(0, "Hidden space"))
+            out.add(Row(2, "🙈  Open hidden space") {
+                search.setText("")
+                a.openHidden()
             })
         }
         val sets = SettingsSearch.find(q).filter { it.third != "yogi:private" || pu != null }.filter { it.third != "yogi:work" || Profiles.workUser != null }
@@ -414,6 +438,10 @@ class Library(private val a: LauncherActivity) {
                 revealPrivate = true
                 tab = PRIVATE
                 rebuild()
+            }
+            "yogi:hidden" -> {
+                search.setText("")
+                a.openHidden()
             }
             "yogi:work" -> {
                 search.setText("")

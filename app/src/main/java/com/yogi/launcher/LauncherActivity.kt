@@ -143,6 +143,7 @@ class LauncherActivity : AppCompatActivity() {
             if (Prefs.swipeDown == 1 || !System2.expandNotifications(this)) openLibrary(true)
         }
         pager.onDoubleTap = { doubleTap() }
+        pager.onTwoFingerUp = { openHidden() }
         pager.onLongPress = { setEdit(true) }
         dots.onTap = { openLibrary(true) }
 
@@ -403,7 +404,40 @@ class LauncherActivity : AppCompatActivity() {
 
     // ===================================================================== edit mode
 
+    /** One UI "Lock home screen layout": nothing can be moved or removed. */
+    private fun layoutLocked(): Boolean {
+        if (!Prefs.lockLayout) return false
+        toast("Home screen layout is locked · Settings → Home screen")
+        return true
+    }
+
+    /** OxygenOS-style Hidden space: asks for the screen lock first (if set), then shows hidden apps. */
+    fun openHidden() {
+        if (editing) return
+        val km = getSystemService(KEYGUARD_SERVICE) as android.app.KeyguardManager
+        if (Prefs.hiddenLock && km.isKeyguardSecure) {
+            @Suppress("DEPRECATION")
+            val i = km.createConfirmDeviceCredentialIntent("Hidden space", "Unlock to see your hidden apps")
+            if (i != null) {
+                try {
+                    startActivityForResult(i, REQ_HIDDEN)
+                    return
+                } catch (_: Exception) {
+                }
+            }
+        }
+        showHidden()
+    }
+
+    private fun showHidden() {
+        val lib = library ?: Library(this).also { library = it }
+        lib.openTab(Library.HIDDEN)
+    }
+
+    private val REQ_HIDDEN = 4300
+
     fun setEdit(on: Boolean) {
+        if (on && !editing && layoutLocked()) return
         if (editing == on) return
         editing = on
         popup?.dismiss()
@@ -477,6 +511,7 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun startDrag(v: IconView) {
         val item = v.item ?: return
+        if (layoutLocked()) return
         popup?.dismiss()
         drag = DragState(v.slot, item)
         dropped = false
@@ -498,6 +533,7 @@ class LauncherActivity : AppCompatActivity() {
 
     /** Library icons can be dragged onto the home screen too. */
     fun startDragFromLibrary(v: IconView, app: AppInfo) {
+        if (layoutLocked()) return
         if (app.profile == Profiles.PRIVATE) {
             toast("Private apps stay in the App Library")
             return
@@ -751,7 +787,7 @@ class LauncherActivity : AppCompatActivity() {
             } else {
                 menuRow(box, "✎", "Edit Home Screen") { setEdit(true) }
                 val slot = iv?.slot
-                if (slot != null) {
+                if (slot != null && !Prefs.lockLayout) {
                     menuRow(box, "⊖", if (slot.area == Slot.FOLDER) "Remove from folder" else "Remove from Home") {
                         if (slot.area == Slot.FOLDER) {
                             Home.removeAt(slot)
@@ -767,14 +803,18 @@ class LauncherActivity : AppCompatActivity() {
                 }
             }
             menuRow(box, "ⓘ", "App info") { Apps.appInfo(this, app) }
-            menuRow(box, "🙈", "Hide app") {
+            if (app.key in Prefs.hidden) menuRow(box, "👁", "Unhide (back to the App Library)") {
+                Store.setSet("hidden", Prefs.hidden - app.key)
+                library?.reload()
+                toast("Back in the App Library")
+            } else menuRow(box, "🙈", "Hide app") {
                 Store.setSet("hidden", Prefs.hidden + app.key)
                 Home.removeKey(app.key)
                 Home.save()
                 closeFolder(rebuild = false)
                 buildHome()
                 library?.reload()
-                toast("Hidden. Show it again in Settings → Hidden apps")
+                toast("Moved to Hidden space · two-finger swipe up to open it")
             }
             if (!Apps.isSystem(app)) menuRow(box, "🗑", "Uninstall", 0xFFFF6961.toInt()) { Apps.uninstall(this, app) }
         } else if (item is FolderItem) {
@@ -1005,8 +1045,8 @@ class LauncherActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // home button while already home: close things, go back to page 1
-        closeAll()
+        // home button while already home: close everything (the App Library fully, so it opens fresh next time)
+        if (library?.isOpen == true) library?.close() else closeAll()
     }
 
     private fun welcome() {
@@ -1083,6 +1123,10 @@ class LauncherActivity : AppCompatActivity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_HIDDEN) {
+            if (resultCode == RESULT_OK) h.postDelayed({ showHidden() }, 150)
+            return
+        }
         widgets.onResult(requestCode, resultCode, data)
     }
 
@@ -1171,8 +1215,8 @@ class LauncherActivity : AppCompatActivity() {
             }
         }
         divider(box)
-        menuRow(box, "✥", "Move") { startWidgetDrag(v, w, slot) }
-        menuRow(box, "🗑", "Remove widget", 0xFFFF6961.toInt()) {
+        menuRow(box, "✥", "Move") { if (!layoutLocked()) startWidgetDrag(v, w, slot) }
+        if (!Prefs.lockLayout) menuRow(box, "🗑", "Remove widget", 0xFFFF6961.toInt()) {
             Home.removeAt(slot)
             if (w.kind == "app") WidgetHost.delete(this, w.wid)
             Home.save()

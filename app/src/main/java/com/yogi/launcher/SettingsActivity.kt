@@ -22,16 +22,16 @@ class SettingsActivity : AppCompatActivity() {
 
     /** (id, icon, title, subtitle, search words) */
     private val pages = listOf(
-        listOf("icons", "🎨", "Icons", "Shape, size, icon pack, badges", "shape squircle circle size icon pack themed badge live clock calendar"),
+        listOf("icons", "🎨", "Icons", "Shape, size, icon pack, badges", "shape squircle circle size icon pack yogi icons pixel themed badge live clock calendar"),
         listOf("text", "🔤", "Text & labels", "Font, label size and colour", "font label text size colour color black white"),
-        listOf("home", "🏠", "Home screen & dock", "Grid, spacing, margins, dock glass", "grid columns rows spacing margin dock glass new apps"),
+        listOf("home", "🏠", "Home screen & dock", "Grid, spacing, margins, dock glass", "grid columns rows spacing margin dock glass new apps lock layout one ui"),
         listOf("folders", "📁", "Folders", "iOS pages, HyperOS 2 × 2, previews", "folder ios hyperos big large pages preview"),
         listOf("widgets", "🕐", "Widgets & clocks", "Nothing, OxygenOS, world and Pixel clocks", "widget clock world nothing oxygen flip ring glass background calendar"),
         listOf("library", "📚", "App Library", "Style, letters, categories, opening view", "drawer library app list letters categories chips columns ios all apps folder horizontal vertical"),
         listOf("private", "🔒", "Private space & work apps", "Show, lock, settings, work profile", "private space secret hidden work profile pause lock unlock"),
         listOf("wallpaper", "🖼", "Wallpaper", "Yogi wallpapers, your photos, dim", "wallpaper background photo dim dark"),
         listOf("gestures", "👆", "Gestures & notifications", "Swipes, double-tap lock, badges", "gesture swipe double tap lock badge notification dots accessibility"),
-        listOf("hidden", "🙈", "Hidden apps", "Show apps you hid", "hidden hide apps"),
+        listOf("hidden", "🙈", "Hidden space", "Hidden apps, screen lock (OxygenOS)", "hidden hide apps space secret oxygen"),
         listOf("about", "ℹ️", "About & reset", "Version, reset layout, icon cache", "about version reset layout cache credits")
     )
 
@@ -179,6 +179,10 @@ class SettingsActivity : AppCompatActivity() {
             50 -> 3
             else -> 2
         }) { Store.setInt("dock_alpha", listOf(0, 15, 30, 50)[it]); changed() })
+        hs.addView(choice("Lock home screen layout (One UI)", listOf("Off", "On"), if (Prefs.lockLayout) 1 else 0) {
+            Store.setBool("lock_layout", it == 1)
+            changed()
+        })
         hs.addView(choice("New apps", listOf("Add to Home", "Library only"), if (Prefs.autoAdd) 0 else 1) {
             Store.setBool("auto_add", it == 0)
             changed()
@@ -388,6 +392,14 @@ class SettingsActivity : AppCompatActivity() {
     private fun hidden(col: LinearLayout) {
         pageTitle(col, "hidden")
         val hidden = Prefs.hidden
+        val hs = card()
+        hs.addView(label("Hidden space (OxygenOS): hidden apps leave Home, the App Library and search. Open them with a " +
+            "two-finger swipe up on the home screen, or search “hidden”.", 13f, C.SUB))
+        hs.addView(choice("Ask for screen lock to open", listOf("Yes", "No"), if (Prefs.hiddenLock) 0 else 1) {
+            Store.setBool("hidden_lock", it == 0)
+            changed()
+        })
+        col.addView(hs)
         val hc = card()
         if (hidden.isEmpty()) {
             hc.addView(label("No hidden apps. Hold an icon → Hide app.", 13f, C.SUB))
@@ -454,9 +466,13 @@ class SettingsActivity : AppCompatActivity() {
     private fun iconPackRow(): View {
         val packs = IconPacks.installed(this)
         val cur = Prefs.iconPack
-        val name = if (cur.isEmpty()) "None" else packs.firstOrNull { it.first == cur }?.second ?: cur
+        val name = when {
+            cur.isEmpty() -> "Original (Pixel / system)"
+            cur == YogiIcons.PACK -> "Yogi icons"
+            else -> packs.firstOrNull { it.first == cur }?.second ?: cur
+        }
         return link("🎨", "Icon pack: $name") {
-            val names = listOf("None (Yogi shapes)") + packs.map { it.second } + listOf("🔎 Get icon packs…")
+            val names = listOf("Original (Pixel / system icons)", "✨ Yogi icons (built in: phone, camera, maps…)") + packs.map { it.second } + listOf("🔎 Get icon packs…")
             AlertDialog.Builder(this)
                 .setTitle("Icon pack")
                 .setItems(names.toTypedArray()) { _, i ->
@@ -465,10 +481,15 @@ class SettingsActivity : AppCompatActivity() {
                             Store.setStr("icon_pack", "")
                             changed()
                         }
-                        i <= packs.size -> {
-                            Store.setStr("icon_pack", packs[i - 1].first)
+                        i == 1 -> {
+                            Store.setStr("icon_pack", YogiIcons.PACK)
                             changed()
-                            toast("Icons from ${packs[i - 1].second}")
+                            toast("Yogi icons on · other apps keep their own icon")
+                        }
+                        i <= packs.size + 1 -> {
+                            Store.setStr("icon_pack", packs[i - 2].first)
+                            changed()
+                            toast("Icons from ${packs[i - 2].second}")
                         }
                         else -> try {
                             startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://search?q=icon%20pack&c=apps")))
