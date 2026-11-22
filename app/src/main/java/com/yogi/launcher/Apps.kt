@@ -176,10 +176,13 @@ object Apps {
         }
     }
 
-    /** Opens the app's info page, where Android's own Uninstall button is (no special permission needed). */
     fun uninstall(ctx: Context, app: AppInfo) {
-        appInfo(ctx, app)
-        ctx.toast("Tap “Uninstall” on this page")
+        try {
+            ctx.startActivity(Intent(Intent.ACTION_DELETE, android.net.Uri.parse("package:" + app.pkg))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: Exception) {
+            appInfo(ctx, app)
+        }
     }
 
     fun isSystem(app: AppInfo): Boolean = (app.info.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0

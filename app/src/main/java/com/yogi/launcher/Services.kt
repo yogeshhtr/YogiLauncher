@@ -1,6 +1,6 @@
 package com.yogi.launcher
 
-import android.app.Notification
+import android.app.Activity
 import android.app.PendingIntent
 import android.app.role.RoleManager
 import android.content.ComponentName
@@ -10,23 +10,76 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.service.notification.NotificationListenerService
-import android.service.notification.StatusBarNotification
-import androidx.core.app.NotificationManagerCompat
+import android.net.Uri
+import android.os.Bundle
+import androidx.appcompat.app.AlertDialog
+
+/** The optional add-on app "Yogi Launcher Plus" (badges + double-tap lock). */
+object Plus {
+    const val PKG = "com.yogi.launcher.plus"
+    const val PERM = "com.yogi.permission.LAUNCHER_PLUS"
+    const val ACTION_STATE = "com.yogi.launcher.BADGES"
+
+    fun installed(ctx: Context): Boolean = try {
+        ctx.packageManager.getPackageInfo(PKG, 0)
+        true
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun send(ctx: Context, action: String) {
+        try {
+            ctx.sendBroadcast(Intent(action).setPackage(PKG), PERM)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Asks the add-on to send its current state. */
+    fun sync(ctx: Context) = send(ctx, "com.yogi.launcher.plus.SYNC")
+
+    fun lock(ctx: Context) = send(ctx, "com.yogi.launcher.plus.LOCK")
+
+    fun open(ctx: Context): Boolean {
+        val i = ctx.packageManager.getLaunchIntentForPackage(PKG) ?: return false
+        return try {
+            ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+}
 
 /** Latest notification of an app (shown in the long-press menu). */
 class Note(val title: String, val text: String, val time: Long, val intent: PendingIntent?)
 
-/** Unread notification counts per app, from [BadgeService]. */
+/** Unread notification counts per app, sent by Yogi Launcher Plus. */
 object Badges {
     @Volatile var counts: Map<String, Int> = emptyMap()
         private set
     @Volatile var notes: Map<String, Note> = emptyMap()
         private set
+    @Volatile var connected = false
+        private set
+    @Volatile var lockReady = false
+        private set
     var listener: (() -> Unit)? = null
     private val main = Handler(Looper.getMainLooper())
 
-    fun update(c: Map<String, Int>, n: Map<String, Note>) {
+    @Suppress("DEPRECATION")
+    fun fromIntent(i: Intent) {
+        val b = i.getBundleExtra("counts") ?: Bundle()
+        val c = HashMap<String, Int>()
+        for (k in b.keySet()) c[k] = b.getInt(k)
+        val n = HashMap<String, Note>()
+        val list: ArrayList<Bundle> = i.getParcelableArrayListExtra("notes") ?: ArrayList()
+        for (nb in list) {
+            val pkg = nb.getString("pkg") ?: continue
+            val pi: PendingIntent? = nb.getParcelable("intent")
+            n[pkg] = Note(nb.getString("title") ?: "", nb.getString("text") ?: "", nb.getLong("time"), pi)
+        }
+        connected = i.getBooleanExtra("enabled", false)
+        lockReady = i.getBooleanExtra("lock", false)
         counts = c
         notes = n
         main.post { listener?.invoke() }
@@ -34,41 +87,30 @@ object Badges {
 
     fun count(pkg: String): Int = counts[pkg] ?: 0
 
-    fun allowed(ctx: Context): Boolean =
-        NotificationManagerCompat.getEnabledListenerPackages(ctx).contains(ctx.packageName)
+    fun allowed(ctx: Context): Boolean = Plus.installed(ctx) && connected
 
+    /** Opens the add-on's setup, or explains how to get it. */
     fun openSettings(ctx: Context) {
-        try {
-            ctx.startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (_: Exception) {
-            ctx.toast("Open Settings → Notifications → Notification access")
+        if (Plus.installed(ctx) && Plus.open(ctx)) return
+        val a = ctx as? Activity
+        if (a == null) {
+            ctx.toast("Install Yogi Launcher Plus for badges")
+            return
         }
-    }
-}
-
-class BadgeService : NotificationListenerService() {
-    override fun onListenerConnected() { recount() }
-    override fun onListenerDisconnected() { Badges.update(emptyMap(), emptyMap()) }
-    override fun onNotificationPosted(sbn: StatusBarNotification?) { recount() }
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) { recount() }
-
-    private fun recount() {
-        val all = try { activeNotifications } catch (_: Exception) { null } ?: return
-        val counts = HashMap<String, Int>()
-        val notes = HashMap<String, Note>()
-        for (s in all) {
-            val n = s.notification ?: continue
-            if (s.isOngoing) continue
-            if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) continue
-            val pkg = s.packageName
-            counts[pkg] = (counts[pkg] ?: 0) + maxOf(1, if (n.number > 0) n.number else 1)
-            val ex = n.extras
-            val title = ex?.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-            val text = ex?.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-            val prev = notes[pkg]
-            if (prev == null || s.postTime > prev.time) notes[pkg] = Note(title, text, s.postTime, n.contentIntent)
-        }
-        Badges.update(counts, notes)
+        AlertDialog.Builder(a)
+            .setTitle("Badges & double-tap lock")
+            .setMessage("These extras need notification access and an accessibility service. Google blocks such apps when " +
+                "they are installed from a browser, so they live in a separate small app: Yogi Launcher Plus " +
+                "(YogiLauncherPlus.apk on the same release page). Install it from a computer with:\n\n" +
+                "adb install YogiLauncherPlus.apk\n\nThe launcher itself needs no special permissions.")
+            .setPositiveButton("Open release page") { _, _ ->
+                try {
+                    a.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/yogeshhtr/YogiLauncher/releases/latest")))
+                } catch (_: Exception) {
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 }
 

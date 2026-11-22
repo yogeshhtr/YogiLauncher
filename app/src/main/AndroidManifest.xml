@@ -3,9 +3,17 @@
 
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <!-- talks only to "Yogi Launcher Plus" (same signing key) for badges and double-tap lock -->
+    <permission
+        android:name="com.yogi.permission.LAUNCHER_PLUS"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.yogi.permission.LAUNCHER_PLUS" />
 
     <!-- Android 11+: see every app with an icon, and the default phone / browser / camera -->
     <queries>
+        <package android:name="com.yogi.launcher.plus" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -56,16 +64,6 @@
             android:label="Launcher settings"
             android:theme="@style/Theme.YogiLauncher.Settings" />
 
-        <!-- red badges and notification previews on icons -->
-        <service
-            android:name=".BadgeService"
-            android:exported="true"
-            android:label="Yogi Launcher badges"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
 
     </application>
 </manifest>

@@ -77,6 +77,11 @@ class LauncherActivity : AppCompatActivity() {
         override fun onPackagesUnavailable(packageNames: Array<out String>?, user: UserHandle?, replacing: Boolean) { reloadApps() }
     }
 
+    /** State from Yogi Launcher Plus (badges, notification previews, lock ready). */
+    private val plusReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context, i: Intent) { Badges.fromIntent(i) }
+    }
+
     private val minuteTick = object : Runnable {
         override fun run() {
             clock.invalidate()
@@ -138,6 +143,10 @@ class LauncherActivity : AppCompatActivity() {
         root.setOnDragListener { _, e -> onDragEvent(e) }
         onBackPressedDispatcher.addCallback(this, back)
         Badges.listener = { updateBadges() }
+        androidx.core.content.ContextCompat.registerReceiver(this, plusReceiver,
+            android.content.IntentFilter(Plus.ACTION_STATE), Plus.PERM, null,
+            androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
+        Plus.sync(this)
         try {
             (getSystemService(LAUNCHER_APPS_SERVICE) as LauncherApps).registerCallback(laCallback, h)
         } catch (_: Exception) {
@@ -147,6 +156,7 @@ class LauncherActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         Badges.listener = null
+        try { unregisterReceiver(plusReceiver) } catch (_: Exception) {}
         try {
             (getSystemService(LAUNCHER_APPS_SERVICE) as LauncherApps).unregisterCallback(laCallback)
         } catch (_: Exception) {
@@ -678,7 +688,7 @@ class LauncherActivity : AppCompatActivity() {
                 library?.reload()
                 toast("Hidden. Show it again in Settings → Hidden apps")
             }
-            if (!Apps.isSystem(app)) menuRow(box, "🗑", "Uninstall…", 0xFFFF6961.toInt()) { Apps.uninstall(this, app) }
+            if (!Apps.isSystem(app)) menuRow(box, "🗑", "Uninstall", 0xFFFF6961.toInt()) { Apps.uninstall(this, app) }
         } else if (item is FolderItem) {
             menuRow(box, "✎", "Rename folder") { renameFolder(item) }
             menuRow(box, "▦", "Edit Home Screen") { setEdit(true) }
@@ -816,10 +826,19 @@ class LauncherActivity : AppCompatActivity() {
 
     // ===================================================================== gestures
 
-    /** Double-tap on empty space: quick search (no special permissions needed). */
+    /** Double-tap on empty space: lock (with Yogi Launcher Plus), otherwise quick search. */
     private fun doubleTap() {
         if (!Prefs.doubleTapLock || editing) return
-        openLibrary(true)
+        when {
+            Badges.lockReady -> Plus.lock(this)
+            Plus.installed(this) -> AlertDialog.Builder(this)
+                .setTitle("Double-tap to lock")
+                .setMessage("Turn on “Yogi Launcher double-tap lock” in Yogi Launcher Plus to lock the screen with a double-tap.")
+                .setPositiveButton("Open Plus") { _, _ -> Plus.open(this) }
+                .setNegativeButton("Search instead") { _, _ -> openLibrary(true) }
+                .show()
+            else -> openLibrary(true)
+        }
     }
 
     private fun closeAll(): Boolean {
@@ -870,6 +889,7 @@ class LauncherActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         back.isEnabled = true
+        Plus.sync(this)
         if (ready && builtVersion != Prefs.version) {
             // settings changed: new sizes, new icon shapes
             builtVersion = Prefs.version

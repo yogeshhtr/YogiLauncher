@@ -37,7 +37,12 @@ class SettingsActivity : AppCompatActivity() {
         val isDefault = System2.isDefaultLauncher(this)
         st.addView(statusRow("🏠", "Default home screen", if (isDefault) "Yes" else "Tap to set", isDefault) { System2.askDefault(this) })
         val badges = Badges.allowed(this)
-        st.addView(statusRow("🔴", "Notification badges & previews", if (badges) "Allowed" else "Tap to allow", badges) { Badges.openSettings(this) })
+        st.addView(statusRow("🔴", "Badges & double-tap lock", when {
+            !Plus.installed(this) -> "Get Plus"
+            badges && Badges.lockReady -> "All on"
+            badges -> "Badges on"
+            else -> "Tap to set up"
+        }, badges) { Badges.openSettings(this) })
         col.addView(st)
 
         // ---------- look
@@ -77,7 +82,7 @@ class SettingsActivity : AppCompatActivity() {
         col.addView(section("GESTURES"))
         val gs = card()
         gs.addView(choice("Swipe down", listOf("Notifications", "Search"), Prefs.swipeDown) { Store.setInt("swipe_down", it); changed() })
-        gs.addView(choice("Double-tap empty space", listOf("Search", "Nothing"), if (Prefs.doubleTapLock) 0 else 1) {
+        gs.addView(choice("Double-tap empty space", listOf("Lock / search", "Nothing"), if (Prefs.doubleTapLock) 0 else 1) {
             Store.setBool("dt_lock", it == 0)
             changed()
         })
