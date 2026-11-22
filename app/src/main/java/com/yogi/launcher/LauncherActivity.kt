@@ -83,6 +83,11 @@ class LauncherActivity : AppCompatActivity() {
         override fun onReceive(c: android.content.Context, i: Intent) { Badges.fromIntent(i) }
     }
 
+    /** Private space locked / unlocked, work apps paused / added: reload the app list. */
+    private val profileReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context, i: Intent) { reloadApps() }
+    }
+
     private val minuteTick = object : Runnable {
         override fun run() {
             for (b in builtinViews) b.invalidate()
@@ -148,6 +153,16 @@ class LauncherActivity : AppCompatActivity() {
             android.content.IntentFilter(Plus.ACTION_STATE), Plus.PERM, null,
             androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
         Plus.sync(this)
+        val pf = android.content.IntentFilter()
+        for (act in listOf(Intent.ACTION_MANAGED_PROFILE_AVAILABLE, Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE,
+            Intent.ACTION_MANAGED_PROFILE_ADDED, Intent.ACTION_MANAGED_PROFILE_REMOVED,
+            "android.intent.action.PROFILE_AVAILABLE", "android.intent.action.PROFILE_UNAVAILABLE",
+            "android.intent.action.PROFILE_ADDED", "android.intent.action.PROFILE_REMOVED")) pf.addAction(act)
+        try {
+            androidx.core.content.ContextCompat.registerReceiver(this, profileReceiver, pf,
+                androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
+        } catch (_: Exception) {
+        }
         try {
             (getSystemService(LAUNCHER_APPS_SERVICE) as LauncherApps).registerCallback(laCallback, h)
         } catch (_: Exception) {
@@ -158,6 +173,7 @@ class LauncherActivity : AppCompatActivity() {
     override fun onDestroy() {
         Badges.listener = null
         try { unregisterReceiver(plusReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(profileReceiver) } catch (_: Exception) {}
         try {
             (getSystemService(LAUNCHER_APPS_SERVICE) as LauncherApps).unregisterCallback(laCallback)
         } catch (_: Exception) {
@@ -268,7 +284,7 @@ class LauncherActivity : AppCompatActivity() {
             runOnUiThread {
                 val keys = apps.map { it.key }.toSet()
                 if (Prefs.autoAdd && before.isNotEmpty()) {
-                    for (k in keys - before) if (!Home.contains(k) && k !in Prefs.hidden) Home.place(AppItem(k))
+                    for (k in keys - before) if (!Home.contains(k) && k !in Prefs.hidden && Apps.get(k)?.profile != Profiles.PRIVATE) Home.place(AppItem(k))
                 }
                 Home.sync(keys)
                 Home.compact(editing)
@@ -477,6 +493,10 @@ class LauncherActivity : AppCompatActivity() {
 
     /** Library icons can be dragged onto the home screen too. */
     fun startDragFromLibrary(v: IconView, app: AppInfo) {
+        if (app.profile == Profiles.PRIVATE) {
+            toast("Private apps stay in the App Library")
+            return
+        }
         v.item = AppItem(app.key)
         v.slot = null
         drag = DragState(null, AppItem(app.key))
@@ -715,7 +735,7 @@ class LauncherActivity : AppCompatActivity() {
                 divider(box)
             }
             if (fromLibrary) {
-                menuRow(box, "＋", "Add to Home Screen") {
+                if (app.profile != Profiles.PRIVATE) menuRow(box, "＋", "Add to Home Screen") {
                     if (!Home.contains(app.key)) {
                         Home.place(AppItem(app.key))
                         Home.save()

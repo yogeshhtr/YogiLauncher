@@ -92,7 +92,8 @@ object Prefs {
     /** new folders are 2 × 2 (HyperOS style) */
     val bigFolders: Boolean get() = Store.bool("big_folders", false)
     /** App Library: 0 A–Z without headers · 1 by letter · 2 by colour */
-    val drawerGroup: Int get() = Store.int("drawer_group", 1)
+    /** App Library: 0 none · 1 letters · 2 colours · 3 iOS-style category boxes */
+    val drawerGroup: Int get() = Store.int("drawer_group", 3)
     val drawerCols: Int get() = Store.int("drawer_cols", 4)
     /** Nothing-style category chips on top of the App Library */
     val drawerChips: Boolean get() = Store.bool("drawer_chips", true)
@@ -121,7 +122,9 @@ class AppInfo(
     val updated: Long,
     val category: Int,
     val user: UserHandle,
-    val info: LauncherActivityInfo
+    val info: LauncherActivityInfo,
+    /** Profiles.PERSONAL · WORK · PRIVATE */
+    val profile: Int = 0
 ) {
     val component: ComponentName get() = ComponentName(pkg, cls)
 }
@@ -139,25 +142,23 @@ object Apps {
         val la = ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
         val me = ctx.packageName
         val out = ArrayList<AppInfo>()
-        val users = try {
-            val um = ctx.getSystemService(Context.USER_SERVICE) as android.os.UserManager
-            um.userProfiles
-        } catch (_: Exception) {
-            listOf(Process.myUserHandle())
-        }
-        for (u in users) {
+        Profiles.refresh(ctx)
+        for (u in Profiles.users(ctx)) {
+            val type = Profiles.type(ctx, u)
+            // a locked private space shows nothing (like the Pixel launcher)
+            if (type == Profiles.PRIVATE && Profiles.isLocked(ctx, u)) continue
             val acts = try { la.getActivityList(null, u) } catch (_: Exception) { emptyList<LauncherActivityInfo>() }
             for (a in acts) {
                 val cn = a.componentName
                 if (cn.packageName == me) continue
-                val work = u != Process.myUserHandle()
-                val key = cn.packageName + "/" + cn.className + if (work) "#" + u.hashCode() else ""
+                val other = type != Profiles.PERSONAL
+                val key = cn.packageName + "/" + cn.className + if (other) "#" + u.hashCode() else ""
                 val ai = a.applicationInfo
                 val cat = if (Build.VERSION.SDK_INT >= 26) ai.category else -1
-                val label = (a.label?.toString() ?: cn.packageName).trim() + if (work) " 💼" else ""
+                val label = (a.label?.toString() ?: cn.packageName).trim() + if (type == Profiles.WORK) " 💼" else ""
                 out.add(AppInfo(key, cn.packageName, cn.className, label,
                     try { ctx.packageManager.getPackageInfo(cn.packageName, 0).lastUpdateTime } catch (_: Exception) { 0L },
-                    cat, u, a))
+                    cat, u, a, type))
             }
         }
         out.sortBy { it.label.lowercase() }
@@ -174,7 +175,11 @@ object Apps {
             Rect(p[0], p[1], p[0] + v.width, p[1] + v.height)
         }
         val opts = from?.let {
-            android.app.ActivityOptions.makeScaleUpAnimation(it, 0, 0, it.width, it.height).toBundle()
+            if (Build.VERSION.SDK_INT >= 23) {
+                android.app.ActivityOptions.makeClipRevealAnimation(it, 0, 0, it.width, it.height).toBundle()
+            } else {
+                android.app.ActivityOptions.makeScaleUpAnimation(it, 0, 0, it.width, it.height).toBundle()
+            }
         }
         try {
             la.startMainActivity(app.component, app.user, bounds, opts)
@@ -198,7 +203,8 @@ object Apps {
     fun top(n: Int): List<AppInfo> {
         val o = Store.obj("launches")
         val hidden = Prefs.hidden
-        return list.filter { o.optInt(it.key) > 0 && it.key !in hidden }.sortedByDescending { o.optInt(it.key) }.take(n)
+        return list.filter { o.optInt(it.key) > 0 && it.key !in hidden && it.profile != Profiles.PRIVATE }
+            .sortedByDescending { o.optInt(it.key) }.take(n)
     }
 
     fun appInfo(ctx: Context, app: AppInfo) {
@@ -585,5 +591,128 @@ object IconPacks {
         } catch (_: Exception) {
             null
         }
+    }
+}
+
+
+/**
+ * Personal, work and private profiles. Private space (Android 15+) is shown only while it is unlocked,
+ * and only to the default home app (Android grants it ACCESS_HIDDEN_PROFILES).
+ */
+object Profiles {
+    const val PERSONAL = 0
+    const val WORK = 1
+    const val PRIVATE = 2
+
+    @Volatile var workUser: UserHandle? = null
+        private set
+    @Volatile var privateUser: UserHandle? = null
+        private set
+
+    private fun la(ctx: Context) = ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+    private fun um(ctx: Context) = ctx.getSystemService(Context.USER_SERVICE) as android.os.UserManager
+
+    fun users(ctx: Context): List<UserHandle> = try {
+        la(ctx).profiles
+    } catch (_: Exception) {
+        try { um(ctx).userProfiles } catch (_: Exception) { listOf(Process.myUserHandle()) }
+    }
+
+    /** Uses the public Android 15 API LauncherApps.getLauncherUserInfo (looked up at run time). */
+    fun type(ctx: Context, u: UserHandle): Int {
+        if (u == Process.myUserHandle()) return PERSONAL
+        if (Build.VERSION.SDK_INT >= 35) {
+            try {
+                val l = la(ctx)
+                val info = l.javaClass.getMethod("getLauncherUserInfo", UserHandle::class.java).invoke(l, u)
+                val t = info?.javaClass?.getMethod("getUserType")?.invoke(info) as? String
+                if (t == "android.os.usertype.profile.PRIVATE") return PRIVATE
+            } catch (_: Throwable) {
+            }
+        }
+        return WORK
+    }
+
+    fun refresh(ctx: Context) {
+        var w: UserHandle? = null
+        var p: UserHandle? = null
+        for (u in users(ctx)) {
+            when (type(ctx, u)) {
+                WORK -> if (w == null) w = u
+                PRIVATE -> if (p == null) p = u
+                else -> Unit
+            }
+        }
+        workUser = w
+        privateUser = p
+    }
+
+    fun isLocked(ctx: Context, u: UserHandle): Boolean = try {
+        um(ctx).isQuietModeEnabled(u)
+    } catch (_: Exception) {
+        false
+    }
+
+    /** Lock / unlock private space, or pause / resume work apps. Android asks for the PIN when unlocking. */
+    fun setLocked(ctx: Context, u: UserHandle, lock: Boolean): Boolean {
+        if (Build.VERSION.SDK_INT < 28) return false
+        return try {
+            um(ctx).requestQuietModeEnabled(lock, u)
+            true
+        } catch (_: Exception) {
+            ctx.toast("Make Yogi Launcher your default home app first")
+            false
+        }
+    }
+
+    /** Android's private space settings (public Android 15 API, looked up at run time). */
+    fun openPrivateSettings(a: android.app.Activity) {
+        try {
+            val l = la(a)
+            val sender = l.javaClass.getMethod("getPrivateSpaceSettingsIntent").invoke(l) as? android.content.IntentSender
+            if (sender != null) {
+                a.startIntentSender(sender, null, 0, 0, 0)
+                return
+            }
+        } catch (_: Throwable) {
+        }
+        try {
+            a.startActivity(Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS))
+        } catch (_: Exception) {
+        }
+    }
+}
+
+/** System settings you can jump to from search ("wifi", "battery", …). */
+object SettingsSearch {
+    val ITEMS: List<Triple<String, String, String>> = listOf(
+        Triple("📶", "Wi-Fi", android.provider.Settings.ACTION_WIFI_SETTINGS),
+        Triple("🔵", "Bluetooth", android.provider.Settings.ACTION_BLUETOOTH_SETTINGS),
+        Triple("📱", "Mobile data · SIM", android.provider.Settings.ACTION_DATA_ROAMING_SETTINGS),
+        Triple("✈️", "Airplane mode", android.provider.Settings.ACTION_AIRPLANE_MODE_SETTINGS),
+        Triple("🔋", "Battery", Intent.ACTION_POWER_USAGE_SUMMARY),
+        Triple("🖥", "Display · brightness", android.provider.Settings.ACTION_DISPLAY_SETTINGS),
+        Triple("🔊", "Sound · volume", android.provider.Settings.ACTION_SOUND_SETTINGS),
+        Triple("🔔", "Notifications", "android.settings.NOTIFICATION_SETTINGS"),
+        Triple("📍", "Location", android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS),
+        Triple("🔒", "Security · privacy", android.provider.Settings.ACTION_SECURITY_SETTINGS),
+        Triple("🧩", "Apps", android.provider.Settings.ACTION_APPLICATION_SETTINGS),
+        Triple("💾", "Storage", android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS),
+        Triple("🌐", "Language · keyboard", android.provider.Settings.ACTION_LOCALE_SETTINGS),
+        Triple("🕐", "Date & time", android.provider.Settings.ACTION_DATE_SETTINGS),
+        Triple("♿", "Accessibility", android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS),
+        Triple("🔗", "Hotspot · tethering", "android.settings.TETHER_SETTINGS"),
+        Triple("📡", "NFC", android.provider.Settings.ACTION_NFC_SETTINGS),
+        Triple("📊", "Data usage", android.provider.Settings.ACTION_DATA_USAGE_SETTINGS),
+        Triple("🖼", "Wallpaper", Intent.ACTION_SET_WALLPAPER),
+        Triple("🛠", "Developer options", android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
+        Triple("ℹ️", "About phone", android.provider.Settings.ACTION_DEVICE_INFO_SETTINGS),
+        Triple("⚙️", "All settings", android.provider.Settings.ACTION_SETTINGS)
+    )
+
+    fun find(q: String): List<Triple<String, String, String>> {
+        val l = q.lowercase().replace("-", "").replace(" ", "")
+        if (l.length < 2) return emptyList()
+        return ITEMS.filter { it.second.lowercase().replace("-", "").replace(" ", "").contains(l) }.take(4)
     }
 }

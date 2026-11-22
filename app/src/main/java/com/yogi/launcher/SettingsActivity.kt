@@ -124,7 +124,7 @@ class SettingsActivity : AppCompatActivity() {
         // ---------- drawer
         col.addView(section("APP LIBRARY"))
         val dr = card()
-        dr.addView(choice("Group apps", listOf("None", "By letter", "By colour"), Prefs.drawerGroup) { Store.setInt("drawer_group", it); changed() })
+        dr.addView(choice("Style", listOf("A–Z", "By letter", "By colour", "iOS App Library"), Prefs.drawerGroup) { Store.setInt("drawer_group", it); changed() })
         dr.addView(choice("Category chips (Nothing style)", listOf("Show", "Hide"), if (Prefs.drawerChips) 0 else 1) {
             Store.setBool("drawer_chips", it == 0)
             changed()

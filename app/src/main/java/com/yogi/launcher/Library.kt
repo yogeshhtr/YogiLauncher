@@ -27,7 +27,8 @@ import kotlin.math.abs
 
 /** All apps A–Z with search (apps, maths, web) — opens with a swipe up. */
 class Library(private val a: LauncherActivity) {
-    private class Row(val type: Int, val text: String = "", val app: AppInfo? = null, val action: (() -> Unit)? = null)
+    private class Row(val type: Int, val text: String = "", val app: AppInfo? = null,
+                      val apps: List<AppInfo> = emptyList(), val action: (() -> Unit)? = null)
 
     var isOpen = false
         private set
@@ -64,7 +65,11 @@ class Library(private val a: LauncherActivity) {
         val body = FrameLayout(a)
         val glm = GridLayoutManager(a, cols)
         glm.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
-            override fun getSpanSize(position: Int): Int = if (rows.getOrNull(position)?.type == 1) 1 else cols
+            override fun getSpanSize(position: Int): Int = when (rows.getOrNull(position)?.type) {
+                1 -> 1
+                3 -> (cols / 2).coerceAtLeast(1)
+                else -> cols
+            }
         }
         list.layoutManager = glm
         list.adapter = adapter
@@ -132,12 +137,28 @@ class Library(private val a: LauncherActivity) {
     private fun rebuild() {
         val q = search.text.toString().trim()
         val hidden = Prefs.hidden
-        val apps = Apps.list.filter { it.key !in hidden }
+        val all = Apps.list.filter { it.key !in hidden }
+        val apps = all.filter { it.profile == Profiles.PERSONAL }
         val out = ArrayList<Row>()
         drawChips(apps)
-        if (q.isEmpty()) {
+        if (q.isEmpty() && Prefs.drawerGroup == 3 && category == null) {
+            // iOS-style App Library: a box per category
+            val top = Apps.top(8)
+            if (top.size >= 2) out.add(Row(3, "Suggestions", apps = top))
+            val recent = apps.sortedByDescending { it.updated }.take(8)
+            if (recent.isNotEmpty()) out.add(Row(3, "Recently updated", apps = recent))
+            val byCat = apps.groupBy { Apps.drawerCategory(it) }
+            for (c in Apps.CATEGORY_ORDER) byCat[c]?.let { out.add(Row(3, c, apps = it)) }
+            addProfiles(out, all)
+            letters.visibility = View.GONE
+        } else if (q.isEmpty()) {
             val cat = category
-            val shown = if (cat == null) apps else apps.filter { Apps.drawerCategory(it) == cat }
+            val shown = when (cat) {
+                null -> apps
+                "Suggestions" -> Apps.top(40)
+                "Recently updated" -> apps.sortedByDescending { it.updated }.take(30)
+                else -> apps.filter { Apps.drawerCategory(it) == cat }
+            }
             if (cat == null) {
                 val top = Apps.top(cols * 2)
                 if (top.isNotEmpty()) {
@@ -174,6 +195,7 @@ class Library(private val a: LauncherActivity) {
                     }
                 }
             }
+            if (cat == null) addProfiles(out, all)
             letters.visibility = if (Prefs.drawerGroup == 1 && cat == null) View.VISIBLE else View.GONE
         } else {
             letters.visibility = View.GONE
@@ -182,11 +204,16 @@ class Library(private val a: LauncherActivity) {
                 out.add(Row(2, "🧮  $q = $txt   (tap to copy)") { a.copy(txt, "Copied $txt") })
             }
             val ql = q.lowercase()
-            val found = apps.mapNotNull { app -> score(app, ql).takeIf { it > 0 }?.let { app to it } }
+            val found = all.mapNotNull { app -> score(app, ql).takeIf { it > 0 }?.let { app to it } }
                 .sortedWith(compareByDescending<Pair<AppInfo, Int>> { it.second }.thenByDescending { Apps.launches(it.first.key) })
             if (found.isNotEmpty()) {
                 out.add(Row(0, "Apps"))
                 found.forEach { out.add(Row(1, app = it.first)) }
+            }
+            val sets = SettingsSearch.find(q)
+            if (sets.isNotEmpty()) {
+                out.add(Row(0, "Settings"))
+                for ((ic, name, action) in sets) out.add(Row(2, "$ic  $name") { open(Intent(action)) })
             }
             out.add(Row(0, "More"))
             out.add(Row(2, "🌐  Search the web for “$q”") { web(q) })
@@ -199,6 +226,31 @@ class Library(private val a: LauncherActivity) {
         }
         rows = out
         adapter.notifyDataSetChanged()
+    }
+
+    /** Work apps (with pause) and private space (lock / unlock), like the Pixel launcher. */
+    private fun addProfiles(out: ArrayList<Row>, all: List<AppInfo>) {
+        val wu = Profiles.workUser
+        if (wu != null) {
+            out.add(Row(0, "💼 Work"))
+            val paused = Profiles.isLocked(a, wu)
+            out.add(Row(2, if (paused) "▶  Turn on work apps" else "⏸  Pause work apps") { Profiles.setLocked(a, wu, !paused) })
+            all.filter { it.profile == Profiles.WORK }.forEach { out.add(Row(1, app = it)) }
+        }
+        val pu = Profiles.privateUser
+        if (pu != null) {
+            out.add(Row(0, "🔒 Private"))
+            if (Profiles.isLocked(a, pu)) {
+                out.add(Row(2, "🔓  Unlock private space") { Profiles.setLocked(a, pu, false) })
+            } else {
+                all.filter { it.profile == Profiles.PRIVATE }.forEach { out.add(Row(1, app = it)) }
+                out.add(Row(2, "🔒  Lock private space") {
+                    Profiles.setLocked(a, pu, true)
+                    close()
+                })
+                out.add(Row(2, "⚙  Private space settings") { Profiles.openPrivateSettings(a) })
+            }
+        }
     }
 
     private fun drawChips(apps: List<AppInfo>) {
@@ -263,6 +315,12 @@ class Library(private val a: LauncherActivity) {
                     v.layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, a.iconPx + a.dp(44))
                     Holder(v)
                 }
+                3 -> {
+                    val v = LibraryBox(a)
+                    val w = (a.resources.displayMetrics.widthPixels - a.dp(30)) / 2
+                    v.layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, w + a.dp(20))
+                    Holder(v)
+                }
                 0 -> {
                     val t = a.label("", 13f, 0xCCFFFFFF.toInt(), true)
                     t.setPadding(a.dp(12), a.dp(14), a.dp(12), a.dp(4))
@@ -296,6 +354,18 @@ class Library(private val a: LauncherActivity) {
                     v.onTap = { launch(app, it) }
                     v.onLong = { a.showMenu(it, app, true) }
                     v.onDrag = { a.startDragFromLibrary(it, app) }
+                    v.invalidate()
+                }
+                3 -> {
+                    val v = holder.itemView as LibraryBox
+                    v.title = r.text
+                    v.apps = r.apps
+                    v.onLaunch = { app, view -> launch(app, view) }
+                    v.onOpen = {
+                        category = r.text
+                        rebuild()
+                        list.scrollToPosition(0)
+                    }
                     v.invalidate()
                 }
                 0 -> (holder.itemView as TextView).text = if (r.text == "★") "Suggestions" else r.text
@@ -449,5 +519,83 @@ object Calc {
         while (peek().isDigit() || peek() == '.') i++
         if (start == i) throw IllegalArgumentException()
         return s.substring(start, i).toDouble()
+    }
+}
+
+
+/**
+ * iOS-style App Library box: three big icons you can tap, and a mini group that opens the whole category.
+ */
+class LibraryBox(private val a: LauncherActivity) : View(a) {
+    var title = ""
+    var apps: List<AppInfo> = emptyList()
+    var onLaunch: ((AppInfo, View) -> Unit)? = null
+    var onOpen: (() -> Unit)? = null
+    private val d = resources.displayMetrics.density
+    private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x2EFFFFFF }
+    private val bmp = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        setShadowLayer(3f * resources.displayMetrics.density, 0f, 1f, 0x88000000.toInt())
+    }
+    private val rect = android.graphics.RectF()
+
+    private fun side(): Float = kotlin.math.min(width - 12f * d, height - 26f * d)
+    private fun left(): Float = (width - side()) / 2f
+    private val top = 4f * resources.displayMetrics.density
+
+    private fun icon(app: AppInfo): android.graphics.Bitmap = Icons.cached(app) ?: Icons.get(a, app)
+
+    override fun onDraw(c: Canvas) {
+        val s = side()
+        if (s <= 0) return
+        val l = left()
+        rect.set(l, top, l + s, top + s)
+        c.drawRoundRect(rect, s * 0.2f, s * 0.2f, bg)
+        val pad = s * 0.1f
+        val cell = (s - pad * 3) / 2
+        for (q in 0 until 4) {
+            val cx = l + pad + (q % 2) * (cell + pad)
+            val cy = top + pad + (q / 2) * (cell + pad)
+            if (q < 3 || apps.size <= 4) {
+                val app = apps.getOrNull(q) ?: continue
+                rect.set(cx, cy, cx + cell, cy + cell)
+                c.drawBitmap(icon(app), null, rect, bmp)
+            } else {
+                val gap = cell * 0.1f
+                val m = (cell - gap) / 2
+                for (k in 0 until kotlin.math.min(4, apps.size - 3)) {
+                    val mx = cx + (k % 2) * (m + gap)
+                    val my = cy + (k / 2) * (m + gap)
+                    rect.set(mx, my, mx + m, my + m)
+                    c.drawBitmap(icon(apps[3 + k]), null, rect, bmp)
+                }
+            }
+        }
+        text.textSize = 13f * d
+        c.drawText(title, width / 2f, top + s + 17f * d, text)
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> alpha = 0.75f
+            MotionEvent.ACTION_CANCEL -> alpha = 1f
+            MotionEvent.ACTION_UP -> {
+                alpha = 1f
+                val s = side()
+                val lx = e.x - left()
+                val ly = e.y - top
+                if (lx < 0 || ly < 0 || lx > s || ly > s) {
+                    onOpen?.invoke()
+                } else {
+                    val q = (if (lx > s / 2) 1 else 0) + (if (ly > s / 2) 2 else 0)
+                    val app = if (q < 3 || apps.size <= 4) apps.getOrNull(q) else null
+                    if (app != null) onLaunch?.invoke(app, this) else onOpen?.invoke()
+                }
+            }
+        }
+        return true
     }
 }

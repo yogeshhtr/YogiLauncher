@@ -456,7 +456,7 @@ object Home {
             used.add(k)
             place(AppItem(k))
         }
-        val rest = apps.filter { it.key !in used && it.key !in Prefs.hidden }
+        val rest = apps.filter { it.key !in used && it.key !in Prefs.hidden && it.profile != Profiles.PRIVATE }
         val google = rest.filter { it.pkg.startsWith("com.google.android") }
         if (google.size >= 3) {
             place(FolderItem("Google", google.map { it.key }.toMutableList()))

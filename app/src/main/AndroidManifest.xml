@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Android 15+: lets the default home app see the private space (granted by Android, not a prompt) -->
+    <uses-permission android:name="android.permission.ACCESS_HIDDEN_PROFILES" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <!-- talks only to "Yogi Launcher Plus" (same signing key) for badges and double-tap lock -->

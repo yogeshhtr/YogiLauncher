@@ -5,6 +5,18 @@
 A clean, fast home screen for Android. It is iPhone-simple, has HyperOS-style folders, and adds advanced extras.
 It's small (only AndroidX libraries, no tracking, no ads) and works fully offline.
 
+## New in v5
+* 🔒 **Private Space (Android 15+) and 💼 work apps**, as on the Pixel launcher:
+  * a **Private** section at the bottom of the App Library, with **lock / unlock** (Android asks for your PIN or
+    fingerprint) and a link to Private space settings
+  * private apps are never shown in suggestions, never added to the home screen, and disappear completely when locked
+  * a **Work** section with **pause / resume**
+  * Yogi Launcher must be your default home app; Android then grants private-space access by itself
+* 📚 **iOS-style App Library** (the new default): a box per category (Suggestions, Recently updated, Social, Media,
+  Games…). Tap one of the 3 big icons to open that app, or the small group to see the whole category.
+* 🔍 **Spotlight search finds system settings** too: Wi-Fi, Bluetooth, battery, display, hotspot, developer options…
+* ✨ Apps open with a **reveal from the icon** (iOS / HyperOS feel)
+
 ## New in v4
 * **Widgets on home pages**: real Android widgets, or built-in ones. Built-ins are 4 **clock styles** (big digits,
   **Nothing-style dot-matrix**, analog, stacked), **Date** and **Battery**. Hold a widget to change its style,
