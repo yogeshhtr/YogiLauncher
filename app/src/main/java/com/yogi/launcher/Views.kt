@@ -146,17 +146,17 @@ class IconView(ctx: Context) : View(ctx) {
     /** Draws just the icon (or the folder tile) at 0,0. */
     fun drawIcon(c: Canvas) {
         val s = boxSize()
-        if (shapeFor != s * 10 + Prefs.shape) {
-            shape = if (isBig) Path().apply { addRoundRect(RectF(0f, 0f, s.toFloat(), s.toFloat()), s * 0.16f, s * 0.16f, Path.Direction.CW) }
+        if (shapeFor != s * 10 + Prefs.shape + Prefs.folderRadius * 100000) {
+            shape = if (isBig) Path().apply { addRoundRect(RectF(0f, 0f, s.toFloat(), s.toFloat()), s * Prefs.folderRadius * 0.007f, s * Prefs.folderRadius * 0.007f, Path.Direction.CW) }
             else Shapes.path(Prefs.shape, s.toFloat())
-            shapeFor = s * 10 + Prefs.shape
+            shapeFor = s * 10 + Prefs.shape + Prefs.folderRadius * 100000
         }
         if (item is FolderItem) {
             fill.color = 0x55FFFFFF
-            val fr = Prefs.folderRadius
-            if (fr >= 0 && !isBig) {
-                val rr = s * fr / 100f
-                c.drawRoundRect(RectF(0f, 0f, s.toFloat(), s.toFloat()), rr, rr, fill)
+            if (!isBig) {
+                val rr = s * Prefs.folderRadius / 100f
+                rect.set(0f, 0f, s.toFloat(), s.toFloat())
+                c.drawRoundRect(rect, rr, rr, fill)
             } else c.drawPath(shape, fill)
             if (isBig) {
                 // HyperOS style: 3 × 3 real-size icons you can tap

@@ -131,7 +131,8 @@ class Library(private val a: LauncherActivity) {
             a.root.addView(frame, FrameLayout.LayoutParams(MATCH, MATCH))
             frame.translationY = a.resources.displayMetrics.heightPixels * 0.15f
             frame.alpha = 0f
-            frame.animate().translationY(0f).alpha(1f).setDuration(240).start()
+            frame.animate().translationY(0f).alpha(1f).setDuration(260)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2.2f)).start()
             a.libraryOpened()
         }
         search.setText("")
@@ -159,7 +160,8 @@ class Library(private val a: LauncherActivity) {
         isOpen = false
         (a.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(search.windowToken, 0)
         search.clearFocus()
-        frame.animate().translationY(a.resources.displayMetrics.heightPixels * 0.12f).alpha(0f).setDuration(180)
+        frame.animate().translationY(a.resources.displayMetrics.heightPixels * 0.12f).alpha(0f).setDuration(170)
+            .setInterpolator(android.view.animation.AccelerateInterpolator(1.5f))
             .withEndAction { (frame.parent as? ViewGroup)?.removeView(frame) }.start()
         a.libraryClosed()
     }
@@ -575,7 +577,7 @@ class Library(private val a: LauncherActivity) {
         val sw = a.resources.displayMetrics.widthPixels
         val panelW = (sw * 0.9f).toInt()
         val panel = FrameLayout(a)
-        panel.background = rounded(0x44FFFFFF, a.dpf(34f))
+        panel.background = rounded(0x44FFFFFF, a.dpf(Prefs.folderRadius * 1.4f))
         panel.isClickable = true
         panel.setPadding(a.dp(10), a.dp(14), a.dp(10), a.dp(10))
         if (Prefs.libFolder == 1) {
@@ -945,7 +947,8 @@ class LibraryBox(private val a: LauncherActivity) : View(a) {
         if (s <= 0) return
         val l = left()
         rect.set(l, top, l + s, top + s)
-        c.drawRoundRect(rect, s * 0.2f, s * 0.2f, bg)
+        val rr = s * Prefs.folderRadius / 100f
+        c.drawRoundRect(rect, rr, rr, bg)
         if (glyph.isNotEmpty()) {
             text.textSize = s * 0.32f
             c.drawText(glyph, l + s / 2, top + s / 2 + s * 0.11f, text)

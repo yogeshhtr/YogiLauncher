@@ -884,10 +884,22 @@ class LauncherActivity : AppCompatActivity() {
      * Blurs the home screen behind folders / the App Library: our icons with RenderEffect, and on phones that allow it
      * the wallpaper too (window blur-behind, like iOS and HyperOS).
      */
+    private var blurNow = 0f
+    private var blurAnim: android.animation.ValueAnimator? = null
+
     private fun blur(on: Boolean, level: Int = Prefs.blurFolder) {
         val r = if (on) blurDp(level) else 0f
         if (Build.VERSION.SDK_INT >= 31) {
-            home.setRenderEffect(if (r > 0f) RenderEffect.createBlurEffect(dpf(r), dpf(r), Shader.TileMode.CLAMP) else null)
+            // the blur fades in and out with the folder / library instead of jumping
+            blurAnim?.cancel()
+            blurAnim = android.animation.ValueAnimator.ofFloat(blurNow, r).apply {
+                duration = if (on) 220 else 160
+                addUpdateListener {
+                    blurNow = it.animatedValue as Float
+                    home.setRenderEffect(if (blurNow > 0.5f) RenderEffect.createBlurEffect(dpf(blurNow), dpf(blurNow), Shader.TileMode.CLAMP) else null)
+                }
+                start()
+            }
             home.alpha = if (on && r == 0f) 0.4f else 1f
             try {
                 val wm = getSystemService(android.view.WindowManager::class.java)
@@ -943,7 +955,14 @@ class LauncherActivity : AppCompatActivity() {
 
     private var folderFrom: View? = null
 
-    private fun folderPanelR(def: Float): Float = if (Prefs.folderRadius < 0) dpf(def) else dpf(Prefs.folderRadius * 1.5f)
+    @Suppress("UNUSED_PARAMETER")
+    private fun folderPanelR(def: Float): Float = dpf(Prefs.folderRadius * 1.5f)
+
+    /** what the open folder looked like when it opened: if nothing changed, closing doesn't rebuild Home */
+    private var folderSig = ""
+    private var openItem: FolderItem? = null
+    private fun sigOf(f: FolderItem?): String = if (f == null) "" else f.name + "|" + f.big + "|" + f.apps.joinToString(",") +
+        "|" + (Home.slotOf(f)?.toString() ?: Home.dock.indexOfFirst { it === f }.toString())
 
     /**
      * Opens a home folder. iOS style: 3 × 3 pages you swipe sideways, zooming out of the folder icon.
@@ -1029,6 +1048,8 @@ class LauncherActivity : AppCompatActivity() {
         blur(true)
         folderView = ov
         folderFrom = from
+        openItem = f
+        folderSig = sigOf(f)
         // zoom out of the folder icon (iOS / HyperOS)
         col.alpha = 0f
         col.post {
@@ -1054,9 +1075,18 @@ class LauncherActivity : AppCompatActivity() {
     fun closeFolder(rebuild: Boolean = true) {
         val v = folderView ?: return
         folderView = null
-        root.removeView(v)
+        val changed = sigOf(openItem) != folderSig
+        openItem = null
         blur(false)
-        if (rebuild && drag == null) buildHome()
+        if (rebuild && drag == null && changed) {
+            root.removeView(v)
+            buildHome()
+        } else {
+            // quick fade back into the icon
+            v.isClickable = false
+            v.animate().alpha(0f).scaleX(0.94f).scaleY(0.94f).setDuration(150)
+                .withEndAction { root.removeView(v) }.start()
+        }
     }
 
     // ===================================================================== App Library and search

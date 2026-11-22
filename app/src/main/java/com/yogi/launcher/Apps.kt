@@ -123,7 +123,7 @@ object Prefs {
     /** 0 default · 1 light · 2 medium · 3 condensed · 4 serif · 5 mono */
     val font: Int get() = Store.int("font", 4)
     /** folder corners, % of the icon size; -1 = same shape as the icons */
-    val folderRadius: Int get() = Store.int("folder_radius", -1)
+    val folderRadius: Int get() = Store.int("folder_radius", 24).let { if (it < 0) 24 else it }.coerceIn(0, 50)
     val dockRadius: Int get() = Store.int("dock_radius", 30)
     /** List style App Library */
     val listSort: Int get() = Store.int("list_sort", 0)

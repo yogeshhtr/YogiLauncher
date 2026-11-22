@@ -5,6 +5,10 @@
 A clean, fast home screen for Android. It is iPhone-simple, has HyperOS-style folders, and adds advanced extras.
 It's small (only AndroidX libraries, no tracking, no ads) and works fully offline.
 
+## New in v10 (final)
+* **Folder corners slider** for home folders, open folders, App Library category boxes and popups (one setting).
+* **Smoother**: closing a folder no longer rebuilds the whole home screen, the background blur fades in and out, and the App Library opens and closes with eased motion.
+
 ## New in v9
 * **Move widgets**: hold a widget and drag it, just like an icon.
 * **Yogi Glass redone**: each app keeps its own background and logo, with a lifted logo, a glass dome highlight and a bright rim. Old-style icons, and icons without a monochrome logo in Dark / Light / Themed, keep their normal look.

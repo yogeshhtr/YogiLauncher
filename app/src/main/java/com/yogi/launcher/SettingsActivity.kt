@@ -211,22 +211,15 @@ class SettingsActivity : AppCompatActivity() {
             Store.setInt("folder_preview", it)
             changed()
         })
-        val fr = Prefs.folderRadius
         val folderPrev = View(this)
-        folderPrev.background = rounded(0x55FFFFFF, dp(64) * (if (fr < 0) 25 else fr) / 100f)
-        fc.addView(choice("Folder corners", listOf("Same as icons", "Custom"), if (fr < 0) 0 else 1) {
-            Store.setInt("folder_radius", if (it == 0) -1 else 25)
-            changed()
-        })
-        if (fr >= 0) {
-            fc.addView(slider("Roundness", 0, 50, fr, { "$it %" }, { v ->
-                folderPrev.background = rounded(0x55FFFFFF, dp(64) * v / 100f)
-            }) { Store.setInt("folder_radius", it); changed() })
-            val holder = hbox()
-            holder.gravity = Gravity.CENTER
-            holder.addView(folderPrev, LinearLayout.LayoutParams(dp(64), dp(64)))
-            fc.addView(holder.lin(t = dp(4), b = dp(6)))
-        }
+        folderPrev.background = rounded(0x55FFFFFF, dp(64) * Prefs.folderRadius / 100f)
+        fc.addView(slider("Folder corners (Home & App Library)", 0, 50, Prefs.folderRadius, { "$it %" }, { v ->
+            folderPrev.background = rounded(0x55FFFFFF, dp(64) * v / 100f)
+        }) { Store.setInt("folder_radius", it); changed() })
+        val holder = hbox()
+        holder.gravity = Gravity.CENTER
+        holder.addView(folderPrev, LinearLayout.LayoutParams(dp(64), dp(64)))
+        fc.addView(holder.lin(t = dp(4), b = dp(6)))
         fc.addView(choice("Blur behind open folders", BLURS, Prefs.blurFolder) { Store.setInt("blur_folder", it); changed() })
         fc.addView(choice("New folders", listOf("Small 1 × 1", "Large 2 × 2 (HyperOS)"), if (Prefs.bigFolders) 1 else 0) {
             Store.setBool("big_folders", it == 1)
