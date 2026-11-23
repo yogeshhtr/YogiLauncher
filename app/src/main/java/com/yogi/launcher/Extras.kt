@@ -194,23 +194,3 @@ object ShortcutIndex {
         }.take(max)
     }
 }
-
-/** Per-app icon style and home name. */
-object AppLook {
-    /** pack for one app: null = follow the global icon pack, "" = original icon */
-    fun pack(key: String): String? = Store.obj("icon_over").let { if (it.has(key)) it.optString(key) else null }
-
-    fun setPack(key: String, pack: String?) {
-        val o = Store.obj("icon_over")
-        if (pack == null) o.remove(key) else o.put(key, pack)
-        Store.setObj("icon_over", o)
-    }
-
-    fun name(key: String): String? = Store.obj("name_over").optString(key, "").ifEmpty { null }
-
-    fun setName(key: String, name: String?) {
-        val o = Store.obj("name_over")
-        if (name.isNullOrBlank()) o.remove(key) else o.put(key, name.trim())
-        Store.setObj("name_over", o)
-    }
-}

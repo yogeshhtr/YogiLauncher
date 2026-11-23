@@ -17,5 +17,13 @@
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowAnimationStyle">@style/YogiSettingsAnim</item>
+    </style>
+    <!-- fast slide for Settings pages -->
+    <style name="YogiSettingsAnim" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/s_open_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/s_open_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/s_close_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/s_close_exit</item>
     </style>
 </resources>

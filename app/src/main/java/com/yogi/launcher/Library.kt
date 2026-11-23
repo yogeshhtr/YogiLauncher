@@ -88,7 +88,13 @@ class Library(private val a: LauncherActivity) {
         col.addView(tabs.lin(l = a.dp(16), r = a.dp(16), b = a.dp(6)))
         chips.setPadding(a.dp(14), 0, a.dp(14), 0)
         col.addView(chipScroll.lin(b = a.dp(2)))
-        val body = FrameLayout(a)
+        val body = TabSwipeLayout(a)
+        body.canSwipe = { tabItems().size > 1 && search.text.isEmpty() && overlay == null }
+        body.onDrag = { dx -> list.translationX = dx * 0.35f }
+        body.onRelease = { dx ->
+            val moved = kotlin.math.abs(dx) > a.dp(70) && switchTab(if (dx < 0) 1 else -1)
+            if (!moved) list.animate().translationX(0f).setDuration(150).start()
+        }
         val glm = GridLayoutManager(a, spans)
         glm.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
             override fun getSpanSize(position: Int): Int = when (rows.getOrNull(position)?.type) {
@@ -99,48 +105,6 @@ class Library(private val a: LauncherActivity) {
             }
         }
         list.layoutManager = glm
-        list.addOnItemTouchListener(object : RecyclerView.OnItemTouchListener {
-            private var x0 = 0f
-            private var y0 = 0f
-            private var swiping = false
-            private val slop = ViewConfiguration.get(a).scaledTouchSlop
-
-            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
-                when (e.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        x0 = e.x
-                        y0 = e.y
-                        swiping = false
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val dx = e.x - x0
-                        val dy = e.y - y0
-                        if (!swiping && abs(dx) > slop * 3 && abs(dx) > abs(dy) * 2 && tabItems().size > 1 &&
-                            search.text.isEmpty() && overlay == null) {
-                            swiping = true
-                            rv.parent?.requestDisallowInterceptTouchEvent(true)
-                            return true
-                        }
-                    }
-                }
-                return false
-            }
-
-            override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {
-                val dx = e.x - x0
-                when (e.actionMasked) {
-                    MotionEvent.ACTION_MOVE -> rv.translationX = dx * 0.35f
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        swiping = false
-                        val moved = e.actionMasked == MotionEvent.ACTION_UP && abs(dx) > a.dp(70) &&
-                            switchTab(if (dx < 0) 1 else -1)
-                        if (!moved) rv.animate().translationX(0f).setDuration(150).start()
-                    }
-                }
-            }
-
-            override fun onRequestDisallowInterceptTouchEvent(disallow: Boolean) {}
-        })
         list.itemAnimator = null          // no fade on every keystroke: results appear at once
         list.setItemViewCacheSize(24)
         list.adapter = adapter
@@ -1118,5 +1082,59 @@ class LibraryBox(private val a: LauncherActivity) : View(a) {
             }
         }
         return true
+    }
+}
+
+
+/**
+ * Sees every touch before the icons do, so a sideways swipe anywhere in the App Library switches
+ * Personal · Work · Private, even when it starts on an app icon.
+ */
+class TabSwipeLayout(ctx: Context) : FrameLayout(ctx) {
+    var canSwipe: () -> Boolean = { false }
+    var onDrag: ((Float) -> Unit)? = null
+    var onRelease: ((Float) -> Unit)? = null
+    private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
+    private var x0 = 0f
+    private var y0 = 0f
+    private var swiping = false
+    private var decided = false
+
+    override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                x0 = e.x
+                y0 = e.y
+                swiping = false
+                decided = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = e.x - x0
+                val dy = e.y - y0
+                if (!swiping && !decided) {
+                    if (abs(dy) > slop * 2 && abs(dy) >= abs(dx)) decided = true      // scrolling: leave it alone
+                    else if (abs(dx) > slop * 2 && abs(dx) > abs(dy) * 1.5f && canSwipe()) {
+                        swiping = true
+                        decided = true
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        // the icon under the finger must not open or start a drag
+                        val cancel = MotionEvent.obtain(e)
+                        cancel.action = MotionEvent.ACTION_CANCEL
+                        super.dispatchTouchEvent(cancel)
+                        cancel.recycle()
+                    } else if (abs(dx) > slop * 2) decided = true
+                }
+                if (swiping) {
+                    onDrag?.invoke(dx)
+                    return true
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (swiping) {
+                swiping = false
+                onRelease?.invoke(if (e.actionMasked == MotionEvent.ACTION_UP) e.x - x0 else 0f)
+                return true
+            }
+        }
+        return super.dispatchTouchEvent(e)
     }
 }

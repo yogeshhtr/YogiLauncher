@@ -726,51 +726,6 @@ class LauncherActivity : AppCompatActivity() {
         }
     }
 
-    /** Per-app icon: follow the icon pack, the original, a Yogi style or any icon pack that has this app. */
-    private fun pickIcon(app: AppInfo) {
-        Thread {
-            val packs = IconPacks.installed(this).filter { IconPacks.has(this, app, it.first) }
-            runOnUiThread {
-                val ids = ArrayList<String?>()
-                val names = ArrayList<String>()
-                ids.add(null); names.add("Follow the icon pack (default)")
-                ids.add(""); names.add("Original")
-                for (y in listOf(YogiIcons.PACK, YogiIcons.DARK, YogiIcons.LIGHT)) { ids.add(y); names.add(YogiIcons.name(y)) }
-                for ((p, n) in packs) { ids.add(p); names.add(n) }
-                val cur = AppLook.pack(app.key)
-                AlertDialog.Builder(this)
-                    .setTitle("Icon for " + app.label)
-                    .setSingleChoiceItems(names.toTypedArray(), ids.indexOf(cur).coerceAtLeast(0)) { d, i ->
-                        AppLook.setPack(app.key, ids[i])
-                        d.dismiss()
-                        buildHome()
-                        library?.reload()
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            }
-        }.start()
-    }
-
-    /** Per-app name (Home, folders, App Library and search). Empty = the app's own name. */
-    private fun renameApp(app: AppInfo) {
-        val original = try { app.info.label?.toString() ?: app.label } catch (_: Exception) { app.label }
-        val e = input(original, value = AppLook.name(app.key) ?: "")
-        AlertDialog.Builder(this)
-            .setTitle("Rename")
-            .setView(e.apply { setPadding(dp(18), dp(12), dp(18), dp(12)) })
-            .setPositiveButton("Save") { _, _ ->
-                AppLook.setName(app.key, e.text.toString())
-                reloadApps()
-            }
-            .setNeutralButton("Original name") { _, _ ->
-                AppLook.setName(app.key, null)
-                reloadApps()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
     fun showMenu(v: View, appOverride: AppInfo? = null, fromLibrary: Boolean = false) {
         popup?.dismiss()
         val iv = v as? IconView
@@ -848,10 +803,6 @@ class LauncherActivity : AppCompatActivity() {
                         }
                     }
                 }
-            }
-            if (app.profile != Profiles.PRIVATE) {
-                menuRow(box, "🎨", "Change icon") { pickIcon(app) }
-                menuRow(box, "✎", "Rename") { renameApp(app) }
             }
             menuRow(box, "ⓘ", "App info") { Apps.appInfo(this, app) }
             if (app.key in Prefs.hidden) menuRow(box, "👁", "Unhide (back to the App Library)") {
@@ -1247,7 +1198,6 @@ class LauncherActivity : AppCompatActivity() {
             // settings changed: new sizes, new icon shapes
             builtVersion = Prefs.version
             computeSizes()
-            Icons.clearMemory()
             library?.close()
             library = null
             if (Store.bool("reset_layout")) {

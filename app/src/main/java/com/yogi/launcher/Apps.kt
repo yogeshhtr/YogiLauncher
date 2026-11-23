@@ -233,7 +233,7 @@ object Apps {
                 val key = cn.packageName + "/" + cn.className + if (other) "#" + u.hashCode() else ""
                 val ai = a.applicationInfo
                 val cat = if (Build.VERSION.SDK_INT >= 26) ai.category else -1
-                val label = (AppLook.name(key) ?: (a.label?.toString() ?: cn.packageName).trim()) + if (type == Profiles.WORK) " 💼" else ""
+                val label = ((a.label?.toString() ?: cn.packageName).trim()) + if (type == Profiles.WORK) " 💼" else ""
                 out.add(AppInfo(key, cn.packageName, cn.className, label,
                     try { ctx.packageManager.getPackageInfo(cn.packageName, 0).lastUpdateTime } catch (_: Exception) { 0L },
                     cat, u, a, type))
@@ -488,7 +488,8 @@ object Icons {
         "${app.key}|${app.updated}|${Prefs.shape}|${Prefs.themed}|${packFor(app)}|$size"
 
     /** the icon pack for this app: its own choice, else the global one */
-    fun packFor(app: AppInfo): String = AppLook.pack(app.key) ?: Prefs.iconPack
+    @Suppress("UNUSED_PARAMETER")
+    fun packFor(app: AppInfo): String = Prefs.iconPack
 
     fun cached(app: AppInfo): Bitmap? = mem.get(cacheKey(app))
 
