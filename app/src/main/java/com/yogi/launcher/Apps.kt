@@ -635,6 +635,20 @@ object IconPacks {
     private val ACTIONS = listOf("org.adw.launcher.THEMES", "com.novalauncher.THEME", "com.teslacoilsw.launcher.THEME",
         "com.gau.go.launcherex.theme", "com.dlto.atom.launcher.THEME")
 
+    /** Installed icon packs: package -> name. */
+    fun installed(ctx: Context): List<Pair<String, String>> {
+        val pm = ctx.packageManager
+        val out = LinkedHashMap<String, String>()
+        for (a in ACTIONS) {
+            val list = try { pm.queryIntentActivities(Intent(a), 0) } catch (_: Exception) { emptyList() }
+            for (r in list) {
+                val p = r.activityInfo?.packageName ?: continue
+                out[p] = try { r.loadLabel(pm).toString() } catch (_: Exception) { p }
+            }
+        }
+        return out.entries.map { it.key to it.value }.sortedBy { it.second.lowercase() }
+    }
+
     private class Pack(val map: Map<String, String>, val res: android.content.res.Resources?)
     private val packs = HashMap<String, Pack>()
 
