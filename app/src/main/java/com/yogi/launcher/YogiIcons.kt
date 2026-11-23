@@ -37,8 +37,16 @@ object YogiIcons {
         else -> "Yogi Glass"
     }
 
+    /** File manager apps get Yogi's own folder icon in every Yogi style. */
+    private val FILES = setOf("com.google.android.apps.nbu.files", "com.sec.android.app.myfiles", "com.mi.android.globalFileexplorer",
+        "com.android.fileexplorer", "com.coloros.filemanager", "com.oneplus.filemanager", "com.nothing.filemanager",
+        "com.huawei.hidisk", "com.android.documentsui", "com.google.android.documentsui", "com.oplus.filemanager",
+        "com.vivo.filemanager", "com.motorola.filemanager", "com.asus.filemanager", "com.lenovo.FileBrowser2",
+        "com.transsion.filemanagerx", "com.realme.filemanager")
+
     /** null = keep the app's normal icon. */
     fun render(app: AppInfo, s: Int, pack: String): Bitmap? {
+        if (app.pkg in FILES) return try { files(s, pack) } catch (_: Throwable) { null }
         if (Build.VERSION.SDK_INT < 26) return null
         val d = try { app.info.getIcon(0) } catch (_: Exception) { null } ?: return null
         if (d !is AdaptiveIconDrawable) return null
@@ -126,6 +134,63 @@ object YogiIcons {
         r.strokeWidth = sf * 0.008f
         c.drawPath(shape, r)
         c.restore()
+    }
+
+    // ------------------------------------------------------------------ file manager
+
+    /** A folder with a document peeking out, drawn in the chosen Yogi style. */
+    private fun files(s: Int, pack: String): Bitmap {
+        val sf = s.toFloat()
+        val out = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        val shape = Shapes.path(Prefs.shape, sf)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        val dark = pack == DARK
+        val light = pack == LIGHT
+        c.save()
+        c.clipPath(shape)
+        p.shader = when {
+            dark -> LinearGradient(0f, 0f, 0f, sf, 0xFF34343A.toInt(), 0xFF111113.toInt(), Shader.TileMode.CLAMP)
+            light -> LinearGradient(0f, 0f, 0f, sf, 0xFFFFFFFF.toInt(), 0xFFE4E7EE.toInt(), Shader.TileMode.CLAMP)
+            else -> LinearGradient(0f, 0f, sf * 0.4f, sf, 0xFF4FA3FF.toInt(), 0xFF1D5FE0.toInt(), Shader.TileMode.CLAMP)
+        }
+        c.drawRect(0f, 0f, sf, sf, p)
+        p.shader = null
+        val l = sf * 0.2f
+        val r = sf * 0.8f
+        val t = sf * 0.3f
+        val b = sf * 0.74f
+        val rad = sf * 0.06f
+        // back of the folder with its tab
+        p.color = when { dark -> 0xFF8E8E93.toInt(); light -> 0xFF7FB2FF.toInt(); else -> 0xFFFFC94D.toInt() }
+        val back = Path()
+        back.addRoundRect(RectF(l, t, l + sf * 0.24f, t + sf * 0.12f), rad, rad, Path.Direction.CW)
+        back.addRoundRect(RectF(l, t + sf * 0.06f, r, b), rad, rad, Path.Direction.CW)
+        c.drawPath(back, p)
+        // a sheet of paper
+        p.color = if (dark) 0xFFDADADF.toInt() else Color.WHITE
+        c.drawRoundRect(RectF(l + sf * 0.08f, t + sf * 0.1f, r - sf * 0.08f, b - sf * 0.1f), rad * 0.6f, rad * 0.6f, p)
+        // front of the folder, a little lighter, with a soft shadow above it
+        val front = RectF(l, t + sf * 0.2f, r, b)
+        val sh = Paint(Paint.ANTI_ALIAS_FLAG)
+        sh.color = 0x33000000
+        sh.maskFilter = BlurMaskFilter(sf * 0.025f, BlurMaskFilter.Blur.NORMAL)
+        c.drawRoundRect(RectF(front.left, front.top - sf * 0.01f, front.right, front.bottom), rad, rad, sh)
+        p.shader = when {
+            dark -> LinearGradient(0f, front.top, 0f, front.bottom, 0xFFF4F4F4.toInt(), 0xFFBDBDC2.toInt(), Shader.TileMode.CLAMP)
+            light -> LinearGradient(0f, front.top, 0f, front.bottom, 0xFF5A9BFF.toInt(), 0xFF1D64E8.toInt(), Shader.TileMode.CLAMP)
+            else -> LinearGradient(0f, front.top, 0f, front.bottom, 0xFFFFE08A.toInt(), 0xFFFFB627.toInt(), Shader.TileMode.CLAMP)
+        }
+        c.drawRoundRect(front, rad, rad, p)
+        p.shader = null
+        // glass finish like the other Yogi icons
+        val dome = Path()
+        dome.addOval(RectF(-sf * 0.25f, -sf * 0.68f, sf * 1.25f, sf * 0.44f), Path.Direction.CW)
+        p.shader = LinearGradient(0f, 0f, 0f, sf * 0.44f, if (dark) 0x22FFFFFF else 0x44FFFFFF, 0x05FFFFFF, Shader.TileMode.CLAMP)
+        c.drawPath(dome, p)
+        c.restore()
+        rim(c, shape, sf, if (dark) 0x66FFFFFF else 0xCCFFFFFF.toInt(), 0x14FFFFFF, 0x59FFFFFF)
+        return out
     }
 
     // ------------------------------------------------------------------ dark / light

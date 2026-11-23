@@ -99,6 +99,48 @@ class Library(private val a: LauncherActivity) {
             }
         }
         list.layoutManager = glm
+        list.addOnItemTouchListener(object : RecyclerView.OnItemTouchListener {
+            private var x0 = 0f
+            private var y0 = 0f
+            private var swiping = false
+            private val slop = ViewConfiguration.get(a).scaledTouchSlop
+
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        x0 = e.x
+                        y0 = e.y
+                        swiping = false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = e.x - x0
+                        val dy = e.y - y0
+                        if (!swiping && abs(dx) > slop * 3 && abs(dx) > abs(dy) * 2 && tabItems().size > 1 &&
+                            search.text.isEmpty() && overlay == null) {
+                            swiping = true
+                            rv.parent?.requestDisallowInterceptTouchEvent(true)
+                            return true
+                        }
+                    }
+                }
+                return false
+            }
+
+            override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {
+                val dx = e.x - x0
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_MOVE -> rv.translationX = dx * 0.35f
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        swiping = false
+                        val moved = e.actionMasked == MotionEvent.ACTION_UP && abs(dx) > a.dp(70) &&
+                            switchTab(if (dx < 0) 1 else -1)
+                        if (!moved) rv.animate().translationX(0f).setDuration(150).start()
+                    }
+                }
+            }
+
+            override fun onRequestDisallowInterceptTouchEvent(disallow: Boolean) {}
+        })
         list.itemAnimator = null          // no fade on every keystroke: results appear at once
         list.setItemViewCacheSize(24)
         list.adapter = adapter
@@ -205,13 +247,35 @@ class Library(private val a: LauncherActivity) {
 
     // ---------------- tabs and chips
 
-    private fun drawTabs() {
-        tabs.removeAllViews()
+    private fun tabItems(): List<Pair<Int, String>> {
         val items = ArrayList<Pair<Int, String>>()
         items.add(PERSONAL to "Personal")
         if (Profiles.workUser != null) items.add(WORK to "💼 Work")
         if (privateVisible()) items.add(PRIVATE to "🔒 Private")
         if (tab == HIDDEN) items.add(HIDDEN to "🙈 Hidden")
+        return items
+    }
+
+    /** Swipe left = next tab (Personal → Work → Private), swipe right = back. */
+    private fun switchTab(dir: Int): Boolean {
+        if (search.text.isNotEmpty() || overlay != null) return false
+        val items = tabItems().map { it.first }
+        val i = items.indexOf(tab)
+        val t = items.getOrNull(i + dir) ?: return false
+        tab = t
+        rebuild()
+        list.scrollToPosition(0)
+        list.translationX = dir * list.width * 0.3f
+        list.alpha = 0.3f
+        list.animate().translationX(0f).alpha(1f).setDuration(200)
+            .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        list.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        return true
+    }
+
+    private fun drawTabs() {
+        tabs.removeAllViews()
+        val items = tabItems()
         if (items.size < 2 || search.text.isNotEmpty()) {
             tabs.visibility = View.GONE
             if (tab != PERSONAL && items.none { it.first == tab }) tab = PERSONAL
