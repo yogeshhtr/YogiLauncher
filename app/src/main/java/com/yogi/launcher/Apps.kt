@@ -233,7 +233,7 @@ object Apps {
                 val key = cn.packageName + "/" + cn.className + if (other) "#" + u.hashCode() else ""
                 val ai = a.applicationInfo
                 val cat = if (Build.VERSION.SDK_INT >= 26) ai.category else -1
-                val label = (a.label?.toString() ?: cn.packageName).trim() + if (type == Profiles.WORK) " 💼" else ""
+                val label = (AppLook.name(key) ?: (a.label?.toString() ?: cn.packageName).trim()) + if (type == Profiles.WORK) " 💼" else ""
                 out.add(AppInfo(key, cn.packageName, cn.className, label,
                     try { ctx.packageManager.getPackageInfo(cn.packageName, 0).lastUpdateTime } catch (_: Exception) { 0L },
                     cat, u, a, type))
@@ -485,7 +485,10 @@ object Icons {
     @Volatile var size = 144
 
     private fun cacheKey(app: AppInfo): String =
-        "${app.key}|${app.updated}|${Prefs.shape}|${Prefs.themed}|${Prefs.iconPack}|$size"
+        "${app.key}|${app.updated}|${Prefs.shape}|${Prefs.themed}|${packFor(app)}|$size"
+
+    /** the icon pack for this app: its own choice, else the global one */
+    fun packFor(app: AppInfo): String = AppLook.pack(app.key) ?: Prefs.iconPack
 
     fun cached(app: AppInfo): Bitmap? = mem.get(cacheKey(app))
 
@@ -508,9 +511,10 @@ object Icons {
             }
         }
         // 0) built-in Yogi icons for common apps
-        val yogi = if (YogiIcons.isYogi(Prefs.iconPack)) YogiIcons.render(app, size, Prefs.iconPack) else null
+        val pack = packFor(app)
+        val yogi = if (YogiIcons.isYogi(pack)) YogiIcons.render(app, size, pack) else null
         // 1) the chosen icon pack (its icons keep their own design)
-        val packIcon = if (yogi == null) IconPacks.drawable(ctx, app) else null
+        val packIcon = if (yogi == null) IconPacks.drawable(ctx, app, pack) else null
         val b = if (yogi != null) yogi else if (packIcon != null) {
             val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             packIcon.setBounds(0, 0, size, size)
@@ -631,33 +635,15 @@ object IconPacks {
     private val ACTIONS = listOf("org.adw.launcher.THEMES", "com.novalauncher.THEME", "com.teslacoilsw.launcher.THEME",
         "com.gau.go.launcherex.theme", "com.dlto.atom.launcher.THEME")
 
-    @Volatile private var loadedPkg = ""
-    @Volatile private var map: Map<String, String> = emptyMap()
-    @Volatile private var res: android.content.res.Resources? = null
+    private class Pack(val map: Map<String, String>, val res: android.content.res.Resources?)
+    private val packs = HashMap<String, Pack>()
 
-    /** Installed icon packs: package → name. */
-    fun installed(ctx: Context): List<Pair<String, String>> {
-        val pm = ctx.packageManager
-        val out = LinkedHashMap<String, String>()
-        for (a in ACTIONS) {
-            val list = try { pm.queryIntentActivities(Intent(a), 0) } catch (_: Exception) { emptyList() }
-            for (r in list) {
-                val p = r.activityInfo?.packageName ?: continue
-                out[p] = try { r.loadLabel(pm).toString() } catch (_: Exception) { p }
-            }
-        }
-        return out.entries.map { it.key to it.value }.sortedBy { it.second.lowercase() }
-    }
-
+    /** Icon packs read so far (each read once). */
     @Synchronized
-    private fun ensure(ctx: Context) {
-        val want = Prefs.iconPack
-        if (want == loadedPkg) return
-        loadedPkg = want
-        map = emptyMap()
-        res = null
-        if (want.isEmpty()) return
-        try {
+    private fun ensure(ctx: Context, want: String): Pack {
+        packs[want]?.let { return it }
+        var out = Pack(emptyMap(), null)
+        if (want.isNotEmpty()) try {
             val r = ctx.packageManager.getResourcesForApplication(want)
             val m = HashMap<String, String>()
             val id = r.getIdentifier("appfilter", "xml", want)
@@ -683,21 +669,24 @@ object IconPacks {
                 }
                 ev = parser.next()
             }
-            map = m
-            res = r
+            out = Pack(m, r)
         } catch (_: Exception) {
-            map = emptyMap()
-            res = null
         }
+        packs[want] = out
+        return out
     }
 
-    fun drawable(ctx: Context, app: AppInfo): android.graphics.drawable.Drawable? {
-        if (Prefs.iconPack.isEmpty() || YogiIcons.isYogi(Prefs.iconPack)) return null
-        ensure(ctx)
-        val r = res ?: return null
-        val name = map["${app.pkg}/${app.cls}"] ?: map[app.pkg] ?: return null
+    /** This pack has its own icon for the app. */
+    fun has(ctx: Context, app: AppInfo, pack: String): Boolean =
+        ensure(ctx, pack).map.let { it.containsKey("${app.pkg}/${app.cls}") || it.containsKey(app.pkg) }
+
+    fun drawable(ctx: Context, app: AppInfo, pack: String = Prefs.iconPack): android.graphics.drawable.Drawable? {
+        if (pack.isEmpty() || YogiIcons.isYogi(pack)) return null
+        val p = ensure(ctx, pack)
+        val r = p.res ?: return null
+        val name = p.map["${app.pkg}/${app.cls}"] ?: p.map[app.pkg] ?: return null
         return try {
-            val id = r.getIdentifier(name, "drawable", Prefs.iconPack)
+            val id = r.getIdentifier(name, "drawable", pack)
             if (id == 0) null else r.getDrawable(id, null)
         } catch (_: Exception) {
             null

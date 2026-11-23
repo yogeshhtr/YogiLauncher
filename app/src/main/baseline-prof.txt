@@ -1,0 +1,9 @@
+# Baseline Profile: compile the launcher ahead of time so the home screen, App Library,
+# folders and search are smooth from the very first start.
+HSPLcom/yogi/launcher/**->**(**)**
+Lcom/yogi/launcher/**;
+HSPLandroidx/recyclerview/widget/**->**(**)**
+Landroidx/recyclerview/widget/**;
+HSPLandroidx/core/**->**(**)**
+HSPLkotlin/**->**(**)**
+Lkotlin/**;

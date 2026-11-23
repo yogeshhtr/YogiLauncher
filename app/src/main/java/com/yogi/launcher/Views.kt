@@ -152,7 +152,7 @@ class IconView(ctx: Context) : View(ctx) {
             shapeFor = s * 10 + Prefs.shape + Prefs.folderRadius * 100000
         }
         if (item is FolderItem) {
-            fill.color = 0x55FFFFFF
+            fill.color = WallColors.glass(0x55)
             if (!isBig) {
                 val rr = s * Prefs.folderRadius / 100f
                 rect.set(0f, 0f, s.toFloat(), s.toFloat())

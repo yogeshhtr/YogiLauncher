@@ -5,7 +5,13 @@
 A clean, fast home screen for Android. It is iPhone-simple, has HyperOS-style folders, and adds advanced extras.
 It's small (only AndroidX libraries, no tracking, no ads) and works fully offline.
 
-## New in v10 (final)
+## New in v11
+* **Much faster**: real release build (R8-optimized, smaller) with a Baseline Profile, so it runs smoothly from the first start. The App Library only redraws rows that changed, so search results appear instantly.
+* **Colours from your wallpaper** for the dock, folders, App Library and Settings (Settings → Wallpaper).
+* **Per-app icon and name**: hold an app → Change icon (original, any Yogi style, or any icon pack that has it) or Rename.
+* **Search that finds everything**: apps, contacts, app shortcuts (like *New chat*), maths, unit conversion (`5 km`, `100 f`, `2 gb to mb`), settings and the web.
+
+## New in v10
 * **Folder corners slider** for home folders, open folders, App Library category boxes and popups (one setting).
 * **Smoother**: closing a folder no longer rebuilds the whole home screen, the background blur fades in and out, and the App Library opens and closes with eased motion.
 

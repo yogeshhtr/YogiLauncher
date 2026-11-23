@@ -9,6 +9,8 @@
 
     <!-- built-in wallpapers (normal permission, no prompt) -->
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <!-- contacts in search (asked only when you allow it from search) -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <!-- Android 11+: see every app with an icon, and the default phone / browser / camera -->
     <queries>

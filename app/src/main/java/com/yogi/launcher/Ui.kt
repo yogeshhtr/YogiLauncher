@@ -38,7 +38,8 @@ object C {
     val LINE = 0xFF3A3A3C.toInt()
     val TEXT = 0xFFFFFFFF.toInt()
     val SUB = 0xFF98989F.toInt()
-    val ACCENT = 0xFF0A84FF.toInt()
+    /** follows the wallpaper colour when "Colours from wallpaper" is on */
+    val ACCENT: Int get() = WallColors.accent
     val ACCENT2 = 0xFF30D158.toInt()
     val GREEN = 0xFF30D158.toInt()
     val RED = 0xFFFF453A.toInt()

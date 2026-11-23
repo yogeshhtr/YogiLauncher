@@ -41,6 +41,7 @@ class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Store.init(this)
+        WallColors.load(this)
         pageId = intent.getStringExtra("page") ?: ""
     }
 
@@ -383,6 +384,11 @@ class SettingsActivity : AppCompatActivity() {
             } catch (_: Exception) {
                 toast("No photo picker found")
             }
+        })
+        more.addView(choice("Colours from wallpaper (dock, folders, App Library, Settings)", listOf("On", "Off"), if (WallColors.on) 0 else 1) {
+            Store.setBool("wall_colors", it == 0)
+            WallColors.load(this)
+            changed()
         })
         more.addView(choice("Dim wallpaper on the home screen", listOf("Off", "15 %", "30 %", "45 %"), when (Prefs.wallDim) {
             15 -> 1

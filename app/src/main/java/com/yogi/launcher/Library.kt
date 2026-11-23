@@ -39,7 +39,7 @@ class Library(private val a: LauncherActivity) {
         private set
     private val frame = SwipeFrame(a)
     private val col = a.vbox()
-    private val search: EditText = a.input("🔍  Search apps, settings, maths or the web")
+    private val search: EditText = a.input("🔍  Search apps, contacts, shortcuts, maths, units…")
     private val list = RecyclerView(a)
     private val letters = LetterBar(a)
     private var rows: List<Row> = emptyList()
@@ -99,6 +99,8 @@ class Library(private val a: LauncherActivity) {
             }
         }
         list.layoutManager = glm
+        list.itemAnimator = null          // no fade on every keystroke: results appear at once
+        list.setItemViewCacheSize(24)
         list.adapter = adapter
         list.setHasFixedSize(true)
         list.clipToPadding = false
@@ -134,6 +136,7 @@ class Library(private val a: LauncherActivity) {
             frame.animate().translationY(0f).alpha(1f).setDuration(260)
                 .setInterpolator(android.view.animation.DecelerateInterpolator(2.2f)).start()
             a.libraryOpened()
+            ShortcutIndex.refresh(a)
         }
         search.setText("")
         rebuild()
@@ -369,8 +372,26 @@ class Library(private val a: LauncherActivity) {
         }
         // List style: one app per line with its name (classic Android drawer)
         val lines = Prefs.drawerGroup == 1 && Prefs.listLayout == 1 && q.isEmpty() && tab == PERSONAL && view == ALL
-        rows = out.filter { !(it.type == 0 && it.text.isEmpty()) }.map { if (lines && it.type == 1) Row(5, app = it.app) else it }
-        adapter.notifyDataSetChanged()
+        val fresh = out.filter { !(it.type == 0 && it.text.isEmpty()) }.map { if (lines && it.type == 1) Row(5, app = it.app) else it }
+        // only the rows that really changed are redrawn (typing in search stays instant)
+        val old = rows
+        val diff = androidx.recyclerview.widget.DiffUtil.calculateDiff(object : androidx.recyclerview.widget.DiffUtil.Callback() {
+            override fun getOldListSize() = old.size
+            override fun getNewListSize() = fresh.size
+            override fun areItemsTheSame(o: Int, n: Int): Boolean {
+                val x = old[o]
+                val y = fresh[n]
+                return x.type == y.type && x.text == y.text && x.app?.key == y.app?.key
+            }
+            override fun areContentsTheSame(o: Int, n: Int): Boolean {
+                val x = old[o]
+                val y = fresh[n]
+                // action rows and boxes always rebind (their actions or apps may be new)
+                return x.type == 0 || ((x.type == 1 || x.type == 5) && x.app === y.app)
+            }
+        }, false)
+        rows = fresh
+        diff.dispatchUpdatesTo(adapter)
     }
 
     private fun categoryApps(c: String, apps: List<AppInfo>): List<AppInfo> = when (c) {
@@ -422,6 +443,10 @@ class Library(private val a: LauncherActivity) {
             val txt = if (v == Math.floor(v) && abs(v) < 1e15) v.toLong().toString() else String.format(Locale.US, "%.6g", v).trimEnd('0').trimEnd('.')
             out.add(Row(2, "🧮  $q = $txt   (tap to copy)") { a.copy(txt, "Copied $txt") })
         }
+        Units.convert(q)?.let { r ->
+            val v = r.substringAfter("= ")
+            out.add(Row(2, "📏  $r   (tap to copy)") { a.copy(v, "Copied $v") })
+        }
         val ql = q.lowercase()
         val pool = all.filter { it.profile != Profiles.PRIVATE || (Prefs.privateInSearch && privateVisible()) }
         val found = pool.mapNotNull { app -> score(app, ql).takeIf { it > 0 }?.let { app to it } }
@@ -429,6 +454,35 @@ class Library(private val a: LauncherActivity) {
         if (found.isNotEmpty()) {
             out.add(Row(0, "Apps"))
             found.forEach { out.add(Row(1, app = it.first)) }
+        }
+        // app shortcuts: "new chat", "navigate home", "scan QR"…
+        val scs = ShortcutIndex.find(q)
+        if (scs.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= 25) {
+            out.add(Row(0, "Shortcuts"))
+            val la = a.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+            for (s in scs) {
+                val owner = Apps.forPackage(s.`package`)?.label ?: s.`package`
+                out.add(Row(2, "↗  " + (s.shortLabel ?: "") + "   ·  " + owner) {
+                    try {
+                        la.startShortcut(s, null, null)
+                        close()
+                    } catch (_: Exception) {
+                        a.toast("Shortcut not available")
+                    }
+                })
+            }
+        }
+        // contacts
+        if (Contacts.allowed(a)) {
+            val cs = Contacts.find(a, q)
+            if (cs.isNotEmpty()) {
+                out.add(Row(0, "Contacts"))
+                for (c in cs) out.add(Row(2, "👤  " + c.name + (if (c.number.isNotEmpty()) "   ·  " + c.number else "")) {
+                    open(Intent(Intent.ACTION_VIEW, c.uri))
+                })
+            }
+        } else if (q.length >= 2 && !Store.bool("contacts_asked")) {
+            out.add(Row(2, "👤  Show contacts in search  (tap to allow)") { a.askContacts() })
         }
         // "private" finds the private space even when it is hidden (like Pixel)
         val pu = Profiles.privateUser
@@ -577,7 +631,7 @@ class Library(private val a: LauncherActivity) {
         val sw = a.resources.displayMetrics.widthPixels
         val panelW = (sw * 0.9f).toInt()
         val panel = FrameLayout(a)
-        panel.background = rounded(0x44FFFFFF, a.dpf(Prefs.folderRadius * 1.4f))
+        panel.background = rounded(WallColors.glass(0x44), a.dpf(Prefs.folderRadius * 1.4f))
         panel.isClickable = true
         panel.setPadding(a.dp(10), a.dp(14), a.dp(10), a.dp(10))
         if (Prefs.libFolder == 1) {
@@ -948,6 +1002,7 @@ class LibraryBox(private val a: LauncherActivity) : View(a) {
         val l = left()
         rect.set(l, top, l + s, top + s)
         val rr = s * Prefs.folderRadius / 100f
+        bg.color = WallColors.glass(0x2E)
         c.drawRoundRect(rect, rr, rr, bg)
         if (glyph.isNotEmpty()) {
             text.textSize = s * 0.32f

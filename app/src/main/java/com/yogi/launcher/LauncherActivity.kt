@@ -100,6 +100,7 @@ class LauncherActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Store.init(this)
+        WallColors.load(this)
         edgeToEdge()
         computeSizes()
         Home.load()
@@ -331,7 +332,7 @@ class LauncherActivity : AppCompatActivity() {
             pager.addView(g, FrameLayout.LayoutParams(MATCH, MATCH))
         }
         dock.removeAllViews()
-        dock.background = rounded(Color.argb(Prefs.dockAlpha * 255 / 100, 255, 255, 255), dpf(Prefs.dockRadius.toFloat()))
+        dock.background = rounded(WallColors.glass(Prefs.dockAlpha * 255 / 100), dpf(Prefs.dockRadius.toFloat()))
         dock.setPadding(dp(6), 0, dp(6), 0)
         for (i in 0 until Home.DOCK_SIZE) {
             val it = Home.dock[i]
@@ -725,6 +726,51 @@ class LauncherActivity : AppCompatActivity() {
         }
     }
 
+    /** Per-app icon: follow the icon pack, the original, a Yogi style or any icon pack that has this app. */
+    private fun pickIcon(app: AppInfo) {
+        Thread {
+            val packs = IconPacks.installed(this).filter { IconPacks.has(this, app, it.first) }
+            runOnUiThread {
+                val ids = ArrayList<String?>()
+                val names = ArrayList<String>()
+                ids.add(null); names.add("Follow the icon pack (default)")
+                ids.add(""); names.add("Original")
+                for (y in listOf(YogiIcons.PACK, YogiIcons.DARK, YogiIcons.LIGHT)) { ids.add(y); names.add(YogiIcons.name(y)) }
+                for ((p, n) in packs) { ids.add(p); names.add(n) }
+                val cur = AppLook.pack(app.key)
+                AlertDialog.Builder(this)
+                    .setTitle("Icon for " + app.label)
+                    .setSingleChoiceItems(names.toTypedArray(), ids.indexOf(cur).coerceAtLeast(0)) { d, i ->
+                        AppLook.setPack(app.key, ids[i])
+                        d.dismiss()
+                        buildHome()
+                        library?.reload()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }.start()
+    }
+
+    /** Per-app name (Home, folders, App Library and search). Empty = the app's own name. */
+    private fun renameApp(app: AppInfo) {
+        val original = try { app.info.label?.toString() ?: app.label } catch (_: Exception) { app.label }
+        val e = input(original, value = AppLook.name(app.key) ?: "")
+        AlertDialog.Builder(this)
+            .setTitle("Rename")
+            .setView(e.apply { setPadding(dp(18), dp(12), dp(18), dp(12)) })
+            .setPositiveButton("Save") { _, _ ->
+                AppLook.setName(app.key, e.text.toString())
+                reloadApps()
+            }
+            .setNeutralButton("Original name") { _, _ ->
+                AppLook.setName(app.key, null)
+                reloadApps()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     fun showMenu(v: View, appOverride: AppInfo? = null, fromLibrary: Boolean = false) {
         popup?.dismiss()
         val iv = v as? IconView
@@ -802,6 +848,10 @@ class LauncherActivity : AppCompatActivity() {
                         }
                     }
                 }
+            }
+            if (app.profile != Profiles.PRIVATE) {
+                menuRow(box, "🎨", "Change icon") { pickIcon(app) }
+                menuRow(box, "✎", "Rename") { renameApp(app) }
             }
             menuRow(box, "ⓘ", "App info") { Apps.appInfo(this, app) }
             if (app.key in Prefs.hidden) menuRow(box, "👁", "Unhide (back to the App Library)") {
@@ -1008,7 +1058,7 @@ class LauncherActivity : AppCompatActivity() {
             }
             fd.count = pagesN
             val panel = vbox()
-            panel.background = rounded(0x47FFFFFF, folderPanelR(38f))
+            panel.background = rounded(WallColors.glass(0x47), folderPanelR(38f))
             panel.setPadding(dp(12), dp(18), dp(12), dp(8))
             panel.isClickable = true
             panel.addView(fp, LinearLayout.LayoutParams(MATCH, cellH * 3))
@@ -1017,7 +1067,7 @@ class LauncherActivity : AppCompatActivity() {
             fp.post { fp.setPage(0, false) }
         } else {
             val panel = vbox()
-            panel.background = rounded(0x40FFFFFF, folderPanelR(34f))
+            panel.background = rounded(WallColors.glass(0x40), folderPanelR(34f))
             panel.setPadding(dp(14), dp(16), dp(14), dp(10))
             panel.isClickable = true
             val perRow = if (f.apps.size > 12) 4 else 3
@@ -1071,6 +1121,19 @@ class LauncherActivity : AppCompatActivity() {
                 .setDuration(300).setInterpolator(android.view.animation.DecelerateInterpolator(2.2f)).start()
         }
     }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(req: Int, perms: Array<out String>, res: IntArray) {
+        super.onRequestPermissionsResult(req, perms, res)
+        if (req == REQ_CONTACTS) library?.reload()
+    }
+
+    fun askContacts() {
+        Store.setBool("contacts_asked", true)
+        if (Build.VERSION.SDK_INT >= 23) requestPermissions(arrayOf(android.Manifest.permission.READ_CONTACTS), REQ_CONTACTS)
+    }
+
+    private val REQ_CONTACTS = 4400
 
     fun closeFolder(rebuild: Boolean = true) {
         val v = folderView ?: return
@@ -1167,6 +1230,12 @@ class LauncherActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         back.isEnabled = true
+        // new wallpaper colours: glass of dock, folders and App Library follows them
+        if (WallColors.load(this) && ready) {
+            library?.close()
+            library = null
+            buildHome()
+        }
         dim.setBackgroundColor(Color.argb(Prefs.wallDim * 255 / 100, 0, 0, 0))
         // private space / work apps locked or unlocked while we were away (PIN screen, quick settings)
         val ps = profileSig()

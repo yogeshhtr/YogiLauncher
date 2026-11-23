@@ -29,11 +29,11 @@ jobs:
         run: gradle wrapper
 
       - name: Build APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleRelease --stacktrace
 
       - name: Name the APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk YogiLauncher.apk
+          cp app/build/outputs/apk/release/app-release.apk YogiLauncher.apk
 
       - name: Upload APK (artifact)
         uses: actions/upload-artifact@v4
